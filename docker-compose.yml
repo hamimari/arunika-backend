@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: dashboard_kinerja
+      POSTGRES_PASSWORD: dashboard_kinerja
+      POSTGRES_DB: arunika
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  flyway:
+    image: flyway/flyway:10
+    container_name: my_flyway
+    depends_on:
+      - postgres
+    command: >
+      -url=jdbc:postgresql://host.docker.internal:5432/arunika
+      -user=dashboard_kinerja
+      -password=dashboard_kinerja
+      -locations=filesystem:/flyway/sql
+      migrate
+    volumes:
+      - ./db/migrations:/flyway/sql
+
+volumes:
+  pgdata:
