@@ -28,7 +28,16 @@ func SetupRouter(reg *registry.ServiceRegistry, redis *redis.Client) *gin.Engine
 	user.Use(middlewares.JWTAuthMiddleware(redis))
 	{
 		user.GET("/:id", userHandler.GetUserByID)
+		user.PUT("", userHandler.UpdateUser)
 	}
+	arHandler := handlers.NewArHandler(reg.ArService)
+	r.GET("/ar/cards/:id", middlewares.JWTAuthMiddleware(redis), arHandler.FindById)
+
+	categoryHandler := handlers.NewCategoryHandler(reg.CategoryService)
+	r.GET("/categories", middlewares.JWTAuthMiddleware(redis), categoryHandler.GetCategories)
+
+	dongengHandler := handlers.NewDongengHandler(reg.DongengService)
+	r.GET("/fairy-tales", middlewares.JWTAuthMiddleware(redis), dongengHandler.GetFairyTales)
 
 	return r
 }

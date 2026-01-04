@@ -3,8 +3,11 @@ package handlers
 import (
 	"arunika_backend/models"
 	"arunika_backend/services"
+	"bytes"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -24,12 +27,30 @@ type LoginRequest struct {
 }
 
 type SignUpRequest struct {
-	Name         string `json:"name" binding:"required"`
-	PhoneNumber  string `json:"phone_number" binding:"required"`
-	EmailAddress string `json:"email_address" binding:"required"`
-	Address      string `json:"address" binding:"required"`
-	City         string `json:"city" binding:"required"`
-	Password     string `json:"password" binding:"required"`
+	Name         string  `json:"name" binding:"required"`
+	PhoneNumber  string  `json:"phone_number" binding:"required"`
+	EmailAddress string  `json:"email_address" binding:"required"`
+	Address      string  `json:"address" binding:"required"`
+	City         string  `json:"city" binding:"required"`
+	Password     string  `json:"password" binding:"required"`
+	Child        []Child `json:"child" binding:"required"`
+}
+
+type Child struct {
+	Name      string `json:"name" binding:"required"`
+	Gender    string `json:"gender" binding:"required"`
+	BirthDate string `json:"date_of_birth" binding:"required"`
+}
+
+type SignUpResponse struct {
+	Name         string  `json:"name" binding:"required"`
+	PhoneNumber  string  `json:"phone_number" binding:"required"`
+	EmailAddress string  `json:"email" binding:"required"`
+	Address      string  `json:"address" binding:"required"`
+	City         string  `json:"city" binding:"required"`
+	Child        []Child `json:"child" binding:"required"`
+	Token        string  `json:"token" binding:"required"`
+	RefreshToken string  `json:"refresh_token" binding:"required"`
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -53,11 +74,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  token,
 		"refresh_token": refreshToken,
+		"user_id":       user.ID,
 	})
 }
 
 func (h *AuthHandler) SignUp(c *gin.Context) {
 	var req SignUpRequest
+	body, _ := io.ReadAll(c.Request.Body)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
@@ -68,7 +93,22 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
+	layout := "2006-01-02T15:04:05.000"
+	children := make([]models.Children, len(req.Child))
+	for i, child := range req.Child {
+		dob, err := time.Parse(layout, child.BirthDate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "invalid birth_date format",
+			})
+			return
+		}
+		children[i] = models.Children{
+			Name:        child.Name,
+			Gender:      child.Gender,
+			DateOfBirth: dob,
+		}
+	}
 	parent := models.Parent{
 		Name:         req.Name,
 		PhoneNumber:  req.PhoneNumber,
@@ -76,15 +116,36 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		Password:     string(hashedPassword),
 		Address:      req.Address,
 		City:         req.City,
+		Children:     children,
 	}
 
 	user, err := h.service.Signup(parent)
 	if err != nil {
+		fmt.Print(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	fmt.Print(user)
+	responseChildren := make([]Child, len(children))
+	for i, child := range children {
+		responseChildren[i] = Child{
+			Name:      child.Name,
+			Gender:    child.Gender,
+			BirthDate: "2006-01-02T15:04:05.000",
+		}
+	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": user})
+	response := SignUpResponse{
+		Name:         user.Name,
+		PhoneNumber:  user.PhoneNumber,
+		EmailAddress: user.EmailAddress,
+		Address:      user.Address,
+		City:         user.City,
+		Child:        responseChildren,
+		Token:        "tes",
+		RefreshToken: "tes",
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": response})
 }
 
 func (h *AuthHandler) SendOtp(c *gin.Context) {
