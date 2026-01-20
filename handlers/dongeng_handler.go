@@ -15,11 +15,11 @@ func NewDongengHandler(s *services.DongengService) *DongengHandler {
 }
 
 func (h *DongengHandler) GetFairyTales(c *gin.Context) {
-	user, err := h.service.GetFairyTales()
+	dongeng, err := h.service.GetFairyTales()
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": user})
+	c.JSON(http.StatusOK, gin.H{"data": dongeng})
 }

@@ -25,4 +25,10 @@ values
     ('4d1bd9b0-c147-40ef-ada3-4fe0b051d149', 'Numbers', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', now(), now(), false),
     ('6c532f32-058b-4f88-8389-bc8f738dcecb', 'Shapes', 'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', now(), now(), false),
     ('9335ff4b-5080-430f-be3e-7935375d2ae1', 'Vocab', 'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', now(), now(), false),
-    ('87cb06d3-48ef-49fb-8c5e-661fd55e1ba7', 'Dongeng', 'https://storage.googleapis.com/a1aa/image/hrtjK7BpRwCPJeq8wKrawJrq6dYsWJFSGknFf-ZeKxk.jpg', now(), now(), false)
+    ('87cb06d3-48ef-49fb-8c5e-661fd55e1ba7', 'Dongeng', 'https://storage.googleapis.com/a1aa/image/hrtjK7BpRwCPJeq8wKrawJrq6dYsWJFSGknFf-ZeKxk.jpg', now(), now(), false);
+
+
+INSERT INTO dongengs (title, age_start, age_ent, image_url, is_free, category_id)
+VALUES
+    ('Poor Pluto', 6, 9, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', false, NULL),
+    ('Hansel & Grate', 9, 12, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', true, NULL);

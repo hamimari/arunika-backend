@@ -136,3 +136,16 @@ create table if not exists plan_features (
     feature_id UUID NOT NULL
 );
 
+create table if not exists dongengs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(255) NOT NULL,
+    age_start INT,
+    age_ent INT,
+    image_url VARCHAR(255) NOT NULL,
+    is_free BOOLEAN,
+    category_id UUID,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT false
+);
+

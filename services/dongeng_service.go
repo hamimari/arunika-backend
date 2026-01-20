@@ -14,9 +14,5 @@ func NewDongengService(db *gorm.DB) *DongengService {
 }
 
 func (s *DongengService) GetFairyTales() ([]models.Dongeng, error) {
-	var dongeng models.Dongeng
-	if err := s.db.Find(&dongeng, "id = ?", id).Error; err != nil {
-		return nil, err
-	}
-	return models.FindAll(s.db)
+	return models.FindAllFairyTales(s.db)
 }
