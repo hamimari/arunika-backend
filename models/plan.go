@@ -4,7 +4,7 @@ import (
 	"math/big"
 )
 
-type SubscriptionPlan struct {
+type Plan struct {
 	BaseModel
 	Name         string  `json:"name"`
 	Price        big.Int `json:"price"`

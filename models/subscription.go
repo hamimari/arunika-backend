@@ -10,4 +10,6 @@ type Subscription struct {
 	EndDate   time.Time `json:"end_date"`
 	Status    string    `json:"status"`
 	AutoRenew bool      `json:"auto_renew"`
+	PlanId    string    `json:"plan_id"`
+	UserId    string    `json:"user_id"`
 }

@@ -65,7 +65,7 @@ func generateOtp() string {
 }
 
 func saveOtpToRedis(email string, otp string) error {
-	key := fmt.Sprintf("otp:%s", email) // You can also use user ID or phone number
+	key := fmt.Sprintf("otp:%s", email)
 	expiration := 5 * time.Minute
 
 	err := config.RDB.Set(context.Background(), key, otp, expiration).Err()
