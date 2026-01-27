@@ -134,7 +134,7 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 			BirthDate: "2006-01-02T15:04:05.000",
 		}
 	}
-
+	token, refreshToken, err := h.service.GenerateJwtToken(user.ID.String(), user.Password)
 	response := SignUpResponse{
 		Name:         user.Name,
 		PhoneNumber:  user.PhoneNumber,
@@ -142,8 +142,8 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		Address:      user.Address,
 		City:         user.City,
 		Child:        responseChildren,
-		Token:        "tes",
-		RefreshToken: "tes",
+		Token:        token,
+		RefreshToken: refreshToken,
 	}
 	c.JSON(http.StatusCreated, gin.H{"data": response})
 }
