@@ -11,6 +11,7 @@ type Dongeng struct {
 	AudioUrl   string  `json:"audio_url"`
 	IsFree     bool    `json:"is_free"`
 	CategoryId string  `json:"category_id"`
+	Duration   int64   `json:"duration"`
 }
 
 func FindAllFairyTales(db *gorm.DB) ([]Dongeng, error) {
