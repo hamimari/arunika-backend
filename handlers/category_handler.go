@@ -17,7 +17,7 @@ func NewCategoryHandler(s *services.CategoryService) *CategoryHandler {
 func (h *CategoryHandler) GetCategories(c *gin.Context) {
 	categories, err := h.service.GetCategories()
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve categories"})
 		return
 	}
 

@@ -1,1 +1,31 @@
+# IDE / editor
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Compiled binary / build output
+arunika_backend
+*.exe
+*.out
+
+# Go test cache & coverage
+*.test
+*.prof
+coverage.out
+coverage.html
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Docker volumes / local data
+pgdata/
+
+# Flyway local config (may contain credentials)
+flyway.conf

@@ -4,11 +4,10 @@ import (
 	"arunika_backend/models"
 	"arunika_backend/services"
 	"bytes"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -65,7 +64,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, refreshToken, err := h.service.GenerateJwtToken(user.ID.String(), user.Password)
+	token, refreshToken, err := h.service.GenerateJwtToken(user.ID.String(), user.EmailAddress)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -121,11 +120,11 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 
 	user, err := h.service.Signup(parent)
 	if err != nil {
-		fmt.Print(err)
+		slog.Error("signup failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	fmt.Print(user)
+	slog.Info("signup success", "user_id", user.ID)
 	responseChildren := make([]Child, len(children))
 	for i, child := range children {
 		responseChildren[i] = Child{
@@ -134,7 +133,7 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 			BirthDate: "2006-01-02T15:04:05.000",
 		}
 	}
-	token, refreshToken, err := h.service.GenerateJwtToken(user.ID.String(), user.Password)
+	token, refreshToken, err := h.service.GenerateJwtToken(user.ID.String(), user.EmailAddress)
 	response := SignUpResponse{
 		Name:         user.Name,
 		PhoneNumber:  user.PhoneNumber,
@@ -183,7 +182,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	accessToken, refreshToken, err := h.service.GenerateJwtToken(userID, email.(string))
 	if err != nil {
-		log.Println("failed to generate: ", err)
+		slog.Error("token generation failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate new tokens"})
 		return
 	}

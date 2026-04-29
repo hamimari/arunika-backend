@@ -1,22 +1,31 @@
 package middlewares
 
 import (
+	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 )
 
-var secretKey = os.Getenv("JWT_SECRET")
-
+// JWTAuthMiddleware validates a Bearer token, checks the Redis blacklist and
+// sets user information on the gin context for downstream handlers.
 func JWTAuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Read the secret at request time so it is always current and never
+		// evaluated before godotenv.Load() has been called.
+		secretKey := os.Getenv("JWT_SECRET")
+		if secretKey == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server misconfiguration"})
+			c.Abort()
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header missing"})
@@ -33,19 +42,34 @@ func JWTAuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			c.Abort()
 			return
 		}
 
-		claims := token.Claims.(jwt.MapClaims)
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
+			c.Abort()
+			return
+		}
 
-		if float64(time.Now().Unix()) > claims["exp"].(float64) {
+		// Expiry is already validated by jwt.Parse, but we double-check here
+		// to guard against tokens without an exp claim.
+		expFloat, ok := claims["exp"].(float64)
+		if !ok || float64(time.Now().Unix()) > expFloat {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token expired"})
 			return
 		}
+
+		jti, ok := claims["jti"].(string)
+		if !ok || jti == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
+
+		// Check Redis blacklist (populated on logout)
 		ctx := context.Background()
-		jti := claims["jti"].(string)
 		revoked, _ := rdb.Get(ctx, "blacklist:"+jti).Result()
 		if revoked == "revoked" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token revoked"})
@@ -56,7 +80,7 @@ func JWTAuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		c.Set("email", claims["email"])
 		c.Set("refresh_token", claims["refresh_token"])
 		c.Set("jti", jti)
-		c.Set("exp", time.Unix(int64(claims["exp"].(float64)), 0))
+		c.Set("exp", time.Unix(int64(expFloat), 0))
 
 		c.Next()
 	}
