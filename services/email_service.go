@@ -8,7 +8,7 @@ import (
 	"github.com/joho/godotenv"
 	"gopkg.in/gomail.v2"
 	"html/template"
-	"log"
+	"log/slog"
 	"math/rand"
 	"os"
 	"strconv"
@@ -52,7 +52,7 @@ func SendOTPEmail(to string) error {
 
 	// Optional: log instead of send in dev mode
 	if err := d.DialAndSend(m); err != nil {
-		log.Println("Error sending OTP email:", err)
+		slog.Error("failed to send OTP email", "error", err, "to", to)
 		return err
 	}
 

@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -58,7 +58,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 func (h *UserHandler) UpdateUser(c *gin.Context) {
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Println("error: ", err)
+		slog.Error("UpdateUser: invalid input", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
 		return
 	}
@@ -77,10 +77,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	//layout := "2006-01-02T15:04:05.000"
 	for _, ch := range req.Child {
-		time.Parse(time.RFC3339, ch.BirthDate)
 		dob, err := time.Parse(time.RFC3339, ch.BirthDate)
 		if err != nil {
-			log.Println("error2: ", err)
+			slog.Error("UpdateUser: invalid birth date", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid birth date input"})
 			return
 		}
