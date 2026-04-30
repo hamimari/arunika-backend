@@ -26,8 +26,8 @@ func TestCategoryService_GetCategories_Success(t *testing.T) {
 		AddRow(id1, "Fabel", "https://img/fabel.png", now, now, false).
 		AddRow(id2, "Legenda", "https://img/legenda.png", now, now, false)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "categories" WHERE is_deleted = $1`)).
-		WithArgs(false).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "categories" WHERE is_deleted = $1 AND hidden = $2`)).
+		WithArgs(false, false).
 		WillReturnRows(rows)
 
 	result, err := svc.GetCategories()
@@ -47,8 +47,8 @@ func TestCategoryService_GetCategories_Empty(t *testing.T) {
 		"id", "name", "image_url", "created_at", "updated_at", "is_deleted",
 	})
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "categories" WHERE is_deleted = $1`)).
-		WithArgs(false).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "categories" WHERE is_deleted = $1 AND hidden = $2`)).
+		WithArgs(false, false).
 		WillReturnRows(rows)
 
 	result, err := svc.GetCategories()
@@ -62,8 +62,8 @@ func TestCategoryService_GetCategories_DBError(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	svc := NewCategoryService(gormDB)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "categories" WHERE is_deleted = $1`)).
-		WithArgs(false).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "categories" WHERE is_deleted = $1 AND hidden = $2`)).
+		WithArgs(false, false).
 		WillReturnError(sql.ErrConnDone)
 
 	result, err := svc.GetCategories()

@@ -95,6 +95,8 @@ func validateEnv() {
 		"JWT_SECRET",
 		"SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS",
 		"APP_DOMAIN",
+		"MIDTRANS_SERVER_KEY", "MIDTRANS_CLIENT_KEY",
+		"FIREBASE_SERVICE_ACCOUNT_JSON",
 	}
 	missing := false
 	for _, key := range required {

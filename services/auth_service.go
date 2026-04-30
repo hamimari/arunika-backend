@@ -38,6 +38,12 @@ func (s *AuthService) GenerateJwtToken(userId, email string) (string, string, er
 		return "", "", err
 	}
 
+	// Record user session for DAU tracking (best-effort, non-blocking).
+	if uid, parseErr := uuid.Parse(userId); parseErr == nil {
+		session := models.UserSession{UserID: uid}
+		go s.db.Create(&session)
+	}
+
 	return token, refreshToken, err
 }
 

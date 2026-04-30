@@ -6,12 +6,15 @@ import (
 )
 
 type ArCards struct {
-	ID        string     `gorm:"primaryKey;type:text"       json:"id"`
-	Type      string     `gorm:"type:text;not null"         json:"type"`
+	ID        string     `gorm:"primaryKey;type:text"        json:"id"`
+	Type      string     `gorm:"type:text;not null"          json:"type"`
 	Title     string     `json:"title"`
-	FileURL   string     `gorm:"type:text;not null"         json:"file_url"`
-	SoundUrl  string     `gorm:"column:sound_url;type:text" json:"sound_url"`
-	ShortCode string     `gorm:"uniqueIndex;type:text"      json:"short_code"`
+	FileURL   string     `gorm:"type:text;not null"          json:"file_url"`
+	SoundUrl  string     `gorm:"column:sound_url;type:text"  json:"sound_url"`
+	ShortCode string     `gorm:"uniqueIndex;type:text"       json:"short_code"`
+	Hidden    bool       `gorm:"column:hidden;default:false" json:"hidden"`
+	IsDeleted bool       `gorm:"column:is_deleted;default:false" json:"-"`
+	UpdatedAt time.Time  `json:"updated_at"`
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }

@@ -59,6 +59,27 @@ func SendOTPEmail(to string) error {
 	return nil
 }
 
+// SendGenericEmail sends an HTML email with a custom subject and body.
+// Used for campaign dispatch and payment receipt emails.
+func SendGenericEmail(to, subject, htmlBody string) error {
+	_ = godotenv.Load()
+	port, err := strconv.Atoi(os.Getenv("SMTP_PORT"))
+	if err != nil {
+		return fmt.Errorf("SMTP_PORT not configured: %w", err)
+	}
+	m := gomail.NewMessage()
+	m.SetHeader("From", "no-reply@arunika.com")
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/html", htmlBody)
+	d := gomail.NewDialer(os.Getenv("SMTP_HOST"), port, os.Getenv("SMTP_USER"), os.Getenv("SMTP_PASS"))
+	if err := d.DialAndSend(m); err != nil {
+		slog.Error("SendGenericEmail: failed", "error", err, "to", to)
+		return err
+	}
+	return nil
+}
+
 func generateOtp() string {
 	rand.Seed(time.Now().UnixNano())
 	return fmt.Sprintf("%06d", rand.Intn(1000000))

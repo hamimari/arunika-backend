@@ -12,6 +12,7 @@ type Dongeng struct {
 	IsFree     bool          `json:"is_free"     gorm:"column:is_free"`
 	CategoryId string        `json:"category_id" gorm:"column:category_id"`
 	Duration   int64         `json:"duration"    gorm:"column:duration"`
+	Hidden     bool          `json:"hidden"      gorm:"column:hidden;default:false"`
 	Pages      []DongengPage `json:"pages"       gorm:"foreignKey:DongengId"`
 }
 

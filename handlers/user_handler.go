@@ -46,13 +46,16 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.GetUserByID(id)
+	user, subscriptionStatus, err := h.service.GetUserByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": user})
+	c.JSON(http.StatusOK, gin.H{
+		"data":                user,
+		"subscription_status": subscriptionStatus,
+	})
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
