@@ -46,13 +46,16 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	profile, err := h.service.GetUserByID(id)
+	user, subscriptionStatus, err := h.service.GetUserByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": profile})
+	c.JSON(http.StatusOK, gin.H{
+		"data":                user,
+		"subscription_status": subscriptionStatus,
+	})
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -75,7 +78,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		Address:      req.Address,
 	}
 
-	//layout := "2006-01-02T15:04:05.000"
 	for _, ch := range req.Child {
 		dob, err := time.Parse(time.RFC3339, ch.BirthDate)
 		if err != nil {
@@ -104,11 +106,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	// Re-fetch via GetUserByID to include is_subscribed
-	profile, err := h.service.GetUserByID(updated.ID.String())
+	// Re-fetch via GetUserByID to include subscription status
+	user, subscriptionStatus, err := h.service.GetUserByID(updated.ID.String())
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"data": updated})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": profile})
+	c.JSON(http.StatusOK, gin.H{
+		"data":                user,
+		"subscription_status": subscriptionStatus,
+	})
 }

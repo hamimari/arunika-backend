@@ -13,6 +13,7 @@ type ArCards struct {
 	FileURL   string `gorm:"type:text;not null"         json:"file_url"`
 	SoundUrl  string `gorm:"column:sound_url;type:text" json:"sound_url"`
 	ShortCode string `gorm:"uniqueIndex;type:text"      json:"short_code"`
+	Hidden    bool   `gorm:"column:hidden;default:false" json:"hidden"`
 	// Legacy free-text fields (kept for backward compat, prefer CategoryID/SubCategoryID)
 	Category     string `gorm:"type:varchar(50)"           json:"category"`
 	SubCategory  string `gorm:"column:sub_category;type:varchar(50)" json:"sub_category"`
@@ -27,6 +28,8 @@ type ArCards struct {
 	SubCategoryID  *uuid.UUID      `gorm:"column:sub_category_id;type:uuid" json:"sub_category_id,omitempty"`
 	CategoryRef    *ArCardCategory `gorm:"foreignKey:CategoryID"            json:"category_ref,omitempty"`
 	SubCategoryRef *ArCardCategory `gorm:"foreignKey:SubCategoryID"         json:"sub_category_ref,omitempty"`
+	IsDeleted      bool            `gorm:"column:is_deleted;default:false"  json:"-"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 	CreatedAt      time.Time       `json:"created_at"`
 	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
 }

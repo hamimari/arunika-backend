@@ -16,26 +16,25 @@ func NewUserService(db *gorm.DB) *UserService {
 	return &UserService{db: db}
 }
 
-type UserProfileResponse struct {
-	*models.Parent
-	IsSubscribed bool `json:"is_subscribed"`
-}
-
-func (s *UserService) GetUserByID(id string) (*UserProfileResponse, error) {
+func (s *UserService) GetUserByID(id string) (*models.Parent, string, error) {
 	var user models.Parent
 	if err := s.db.Preload("Children").First(&user, "id = ?", id).Error; err != nil {
-		return nil, err
+		return nil, "", err
 	}
+
+	// Fetch subscription status; default to "free" if not found
+	var sub models.UserSubscription
+	status := "free"
+	if err := s.db.Where("user_id = ?", id).First(&sub).Error; err == nil {
+		status = sub.Status
+	}
+
 	// Ensure Children is never nil so JSON serialises as [] not null
 	if user.Children == nil {
 		user.Children = []models.Children{}
 	}
-	// Check active subscription
-	var count int64
-	s.db.Model(&models.Subscription{}).
-		Where("user_id = ? AND status = ? AND end_date > ?", id, "active", time.Now()).
-		Count(&count)
-	return &UserProfileResponse{Parent: &user, IsSubscribed: count > 0}, nil
+
+	return &user, status, nil
 }
 
 func (s *UserService) UpdateUser(req *models.Parent) (*models.Parent, error) {

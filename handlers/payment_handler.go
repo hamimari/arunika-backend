@@ -3,62 +3,62 @@ package handlers
 import (
 	"arunika_backend/services"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"net/http"
 )
 
 type PaymentHandler struct {
-	service *services.PaymentService
+	paymentService      *services.PaymentService
+	notificationService *services.NotificationService
 }
 
-func NewPaymentHandler(s *services.PaymentService) *PaymentHandler {
-	return &PaymentHandler{service: s}
+func NewPaymentHandler(ps *services.PaymentService, ns *services.NotificationService) *PaymentHandler {
+	return &PaymentHandler{paymentService: ps, notificationService: ns}
 }
 
-type createPaymentRequest struct {
-	PlanName string `json:"plan_name" binding:"required"`
-	Amount   int64  `json:"amount"    binding:"required,gt=0"`
-}
-
-// CreatePayment handles POST /payment/create
-// Requires JWT. Creates a Midtrans Snap token and returns it.
-func (h *PaymentHandler) CreatePayment(c *gin.Context) {
-	userIDRaw, exists := c.Get("userID")
+// CreateTransaction handles POST /payment/create
+func (h *PaymentHandler) CreateTransaction(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	userID, _ := userIDRaw.(string)
-
-	var req createPaymentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	userID, err := uuid.Parse(userIDVal.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
 		return
 	}
 
-	tx, err := h.service.CreateSnapToken(userID, req.PlanName, req.Amount)
+	snapResp, err := h.paymentService.CreateSnapTransaction(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payment"})
 		return
 	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"snap_token": tx.SnapToken,
-		"order_id":   tx.OrderID,
-	})
+	c.JSON(http.StatusOK, gin.H{"data": snapResp})
 }
 
-// PaymentCallback handles POST /payment/callback
-// This endpoint is called by Midtrans (no JWT needed).
-func (h *PaymentHandler) PaymentCallback(c *gin.Context) {
-	var notification services.MidtransNotification
-	if err := c.ShouldBindJSON(&notification); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+// Webhook handles POST /payment/webhook (no JWT — called by Midtrans)
+func (h *PaymentHandler) Webhook(c *gin.Context) {
+	var notif services.WebhookNotification
+	if err := c.ShouldBindJSON(&notif); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.service.HandleNotification(notification); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process notification"})
+	userID, err := h.paymentService.HandleWebhook(notif)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Dispatch payment result notifications based on transaction status.
+	if userID != uuid.Nil {
+		switch notif.TransactionStatus {
+		case "settlement", "capture":
+			go h.notificationService.Send(userID, "Pembayaran Berhasil", "Selamat! Akun kamu sudah aktif Premium.", "payment")
+		case "deny", "expire", "cancel":
+			go h.notificationService.Send(userID, "Pembayaran Gagal", "Maaf, pembayaran kamu tidak berhasil. Silakan coba lagi.", "payment")
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

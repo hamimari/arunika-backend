@@ -40,7 +40,7 @@ func TestUserService_GetUserByID_Success(t *testing.T) {
 		WithArgs(userID.String()).
 		WillReturnRows(childRows)
 
-	result, err := svc.GetUserByID(userID.String())
+	result, _, err := svc.GetUserByID(userID.String())
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -57,7 +57,7 @@ func TestUserService_GetUserByID_NotFound(t *testing.T) {
 		WithArgs("missing-id", 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 
-	result, err := svc.GetUserByID("missing-id")
+	result, _, err := svc.GetUserByID("missing-id")
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
@@ -72,7 +72,7 @@ func TestUserService_GetUserByID_DBError(t *testing.T) {
 		WithArgs("any-id", 1).
 		WillReturnError(sql.ErrConnDone)
 
-	result, err := svc.GetUserByID("any-id")
+	result, _, err := svc.GetUserByID("any-id")
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
