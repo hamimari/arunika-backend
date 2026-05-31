@@ -1,0 +1,1 @@
+ALTER TABLE ar_cards ADD COLUMN printable_img TEXT NOT NULL DEFAULT '';

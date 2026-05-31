@@ -39,7 +39,7 @@ func main() {
 	rdb := config.RDB
 
 	services := registry.NewServiceRegistry(db, rdb)
-	r := routes.SetupRouter(services, rdb)
+	r := routes.SetupRouter(services, rdb, db)
 
 	port := os.Getenv("PORT")
 	if port == "" {

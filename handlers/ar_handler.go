@@ -28,3 +28,23 @@ func (h *ArHandler) FindById(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, content)
 }
+
+func (h *ArHandler) GetAll(c *gin.Context) {
+	categoryID := c.Query("category_id")
+	subCategoryID := c.Query("sub_category_id")
+	cards, err := h.service.GetAll(categoryID, subCategoryID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": cards})
+}
+
+func (h *ArHandler) GetCategories(c *gin.Context) {
+	cats, err := h.service.GetAllCategories()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": cats})
+}

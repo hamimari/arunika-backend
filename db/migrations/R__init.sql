@@ -1,5 +1,6 @@
 TRUNCATE TABLE children RESTART IDENTITY CASCADE;
 TRUNCATE TABLE parents RESTART IDENTITY CASCADE;
+TRUNCATE TABLE animals CASCADE;
 
 -- Insert Parents
 INSERT INTO parents (id, name, phone_number, email_address, password, address, city)
@@ -28,7 +29,57 @@ values
     ('87cb06d3-48ef-49fb-8c5e-661fd55e1ba7', 'Dongeng', 'https://storage.googleapis.com/a1aa/image/hrtjK7BpRwCPJeq8wKrawJrq6dYsWJFSGknFf-ZeKxk.jpg', now(), now(), false);
 
 
-INSERT INTO dongengs (title, age_start, age_ent, image_url, is_free, category_id)
+INSERT INTO dongengs (id, title, age_start, age_ent, age_end, image_url, is_free, category_id)
 VALUES
-    ('Poor Pluto', 6, 9, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', false, NULL),
-    ('Hansel & Grate', 9, 12, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', true, NULL);
+    ('a1b2c3d4-0001-0001-0001-000000000001', 'Si Kancil dan Buaya', 3, 6, 6, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', true, NULL),
+    ('a1b2c3d4-0002-0002-0002-000000000002', 'Hansel dan Gretel', 5, 9, 9, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', false, NULL),
+    ('a1b2c3d4-0003-0003-0003-000000000003', 'Timun Mas', 4, 8, 8, 'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg', false, NULL)
+ON CONFLICT (id) DO NOTHING;
+
+-- Dongeng pages for Si Kancil dan Buaya
+INSERT INTO dongeng_pages (dongeng_id, page_number, image_url, text)
+VALUES
+    ('a1b2c3d4-0001-0001-0001-000000000001', 1,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Di sebuah hutan yang lebat, hiduplah seekor kancil yang cerdik bernama Kancil. Ia sangat pandai dan suka berpetualang.'),
+    ('a1b2c3d4-0001-0001-0001-000000000001', 2,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Suatu hari, Kancil sangat ingin menyeberangi sungai untuk mendapatkan buah-buahan lezat di seberang. Namun sungai itu penuh dengan buaya yang lapar.'),
+    ('a1b2c3d4-0001-0001-0001-000000000001', 3,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Dengan kecerdikannya, Kancil berkata kepada para buaya, "Wahai buaya, Raja Hutan ingin menghitung jumlah kalian untuk memberi hadiah!" Para buaya pun berbaris rapi.'),
+    ('a1b2c3d4-0001-0001-0001-000000000001', 4,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Kancil melompat dari satu buaya ke buaya lainnya sambil menghitung, hingga ia berhasil sampai di seberang sungai. "Terima kasih, buaya!" seru Kancil sambil tertawa.')
+ON CONFLICT (dongeng_id, page_number) DO NOTHING;
+
+-- Dongeng pages for Hansel dan Gretel
+INSERT INTO dongeng_pages (dongeng_id, page_number, image_url, text)
+VALUES
+    ('a1b2c3d4-0002-0002-0002-000000000002', 1,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Hansel dan Gretel adalah dua bersaudara yang tinggal di tepi hutan bersama ayah dan ibu tiri mereka. Kehidupan mereka sangat miskin.'),
+    ('a1b2c3d4-0002-0002-0002-000000000002', 2,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Suatu malam, ibu tiri mereka berencana meninggalkan mereka di hutan. Hansel yang cerdas mengumpulkan kerikil putih untuk menandai jalan pulang.'),
+    ('a1b2c3d4-0002-0002-0002-000000000002', 3,
+     'https://storage.googleapis.com/a1aa/image/2KbLEXPe53yJBZZcTS3MrE4GC4mmaJ6k0zqQT3Fw4Wc.jpg',
+     'Di dalam hutan, mereka menemukan sebuah rumah yang terbuat dari kue dan permen. Mereka sangat lapar dan mulai memakan bagian-bagian dari rumah itu.')
+ON CONFLICT (dongeng_id, page_number) DO NOTHING;
+
+-- Animal seed data
+INSERT INTO animals (id, name, emoji, category, image_url, bg_color, fact, is_unlocked)
+VALUES
+    ('00000000-0000-0000-0001-000000000001', 'Sapi',    '🐄', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#FFF8E1', 'Sapi bisa menghasilkan hingga 200.000 gelas susu dalam hidupnya.', true),
+    ('00000000-0000-0000-0001-000000000002', 'Kambing', '🐐', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#F3E5F5', 'Kambing memiliki pupil persegi panjang yang membantu mereka melihat 320 derajat.', true),
+    ('00000000-0000-0000-0001-000000000003', 'Ayam',    '🐔', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#FFF3E0', 'Ayam adalah hewan peliharaan paling banyak di dunia, lebih banyak dari manusia.', true),
+    ('00000000-0000-0000-0001-000000000004', 'Bebek',   '🦆', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#E3F2FD', 'Bebek bisa tidur dengan satu mata terbuka untuk waspada terhadap predator.', false),
+    ('00000000-0000-0000-0002-000000000001', 'Harimau', '🐯', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#FFF3E0', 'Harimau adalah kucing terbesar di dunia dan perenang yang handal.', true),
+    ('00000000-0000-0000-0002-000000000002', 'Gajah',   '🐘', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#ECEFF1', 'Gajah adalah satu-satunya hewan yang tidak bisa melompat.', true),
+    ('00000000-0000-0000-0002-000000000003', 'Rusa',    '🦌', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#E8F5E9', 'Tanduk rusa adalah jaringan tulang yang tumbuh paling cepat di dunia.', true),
+    ('00000000-0000-0000-0002-000000000004', 'Monyet',  '🐒', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#FFF9C4', 'Monyet memiliki sidik jari yang unik, sama seperti manusia.', false),
+    ('00000000-0000-0000-0003-000000000001', 'Ikan',    '🐟', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#E3F2FD', 'Beberapa ikan bisa mengubah jenis kelaminnya sepanjang hidupnya.', true),
+    ('00000000-0000-0000-0003-000000000002', 'Lumba-lumba', '🐬', 'laut', 'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#B2EBF2', 'Lumba-lumba tidur dengan setengah otaknya tetap terjaga.', true),
+    ('00000000-0000-0000-0003-000000000003', 'Penyu',   '🐢', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#E8F5E9', 'Penyu laut bisa hidup lebih dari 100 tahun.', false),
+    ('00000000-0000-0000-0003-000000000004', 'Gurita',  '🐙', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#F3E5F5', 'Gurita memiliki tiga jantung dan darah berwarna biru.', false)
+ON CONFLICT (id) DO NOTHING;

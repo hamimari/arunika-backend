@@ -295,3 +295,154 @@ func TestAuthHandler_ResetPassword_MissingToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// ─── AnimalHandler ────────────────────────────────────────────────────────────
+
+func TestAnimalHandler_GetAnimals_Success(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAnimalService(gormDB)
+	h := NewAnimalHandler(svc)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "emoji", "category", "image_url", "bg_color", "fact",
+		"is_unlocked", "created_at", "updated_at", "is_deleted",
+	}).
+		AddRow("1", "Sapi", "🐄", "ternak", "", "#FFF8E1", "Sapi fun fact", true, now, now, false).
+		AddRow("2", "Rusa", "🦌", "hutan", "", "#E8F5E9", "Rusa fun fact", true, now, now, false)
+
+	mock.ExpectQuery(`SELECT \* FROM "animals" WHERE is_deleted`).
+		WillReturnRows(rows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/animals", nil)
+
+	h.GetAnimals(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data, ok := resp["data"].([]interface{})
+	require.True(t, ok)
+	assert.Len(t, data, 2)
+}
+
+func TestAnimalHandler_GetAnimals_DBError(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAnimalService(gormDB)
+	h := NewAnimalHandler(svc)
+
+	mock.ExpectQuery(`SELECT \* FROM "animals" WHERE is_deleted`).
+		WillReturnError(gorm.ErrInvalidDB)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/animals", nil)
+
+	h.GetAnimals(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// ─── BannerHandler ────────────────────────────────────────────────────────────
+
+func TestBannerHandler_GetActiveBanners_Success(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewBannerService(gormDB)
+	h := NewBannerHandler(svc)
+
+	id := uuid.New()
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{
+		"id", "title", "image_url", "type", "is_active", "sort_order",
+		"cta_url", "emoji", "fact", "created_at", "updated_at", "is_deleted",
+	}).AddRow(id, "Promo", "https://cdn/p.png", "promo", true, 0, nil, nil, nil, now, now, false)
+
+	mock.ExpectQuery(regexp.QuoteMeta(
+		`SELECT * FROM "banners" WHERE is_active = $1 AND is_deleted = $2 ORDER BY sort_order ASC`,
+	)).WithArgs(true, false).WillReturnRows(rows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/banners", nil)
+
+	h.GetActiveBanners(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data, ok := resp["data"].([]interface{})
+	require.True(t, ok)
+	assert.Len(t, data, 1)
+}
+
+func TestBannerHandler_GetActiveBanners_DBError(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewBannerService(gormDB)
+	h := NewBannerHandler(svc)
+
+	mock.ExpectQuery(regexp.QuoteMeta(
+		`SELECT * FROM "banners" WHERE is_active = $1 AND is_deleted = $2 ORDER BY sort_order ASC`,
+	)).WithArgs(true, false).WillReturnError(gorm.ErrInvalidDB)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/banners", nil)
+
+	h.GetActiveBanners(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// ─── PaymentHandler ───────────────────────────────────────────────────────────
+
+func TestPaymentHandler_CreatePayment_MissingUserID(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := services.NewPaymentService(gormDB)
+	h := NewPaymentHandler(svc)
+
+	body := `{"plan_name":"Paket Hutan","amount":29000}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/payment/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	// No "userID" in context — should return 401
+
+	h.CreatePayment(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestPaymentHandler_CreatePayment_InvalidBody(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := services.NewPaymentService(gormDB)
+	h := NewPaymentHandler(svc)
+
+	body := `{}` // missing required fields
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/payment/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("userID", "user-123")
+
+	h.CreatePayment(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPaymentHandler_PaymentCallback_InvalidBody(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := services.NewPaymentService(gormDB)
+	h := NewPaymentHandler(svc)
+
+	body := `not-json`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/payment/callback", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.PaymentCallback(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
