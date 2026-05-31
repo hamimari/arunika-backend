@@ -26,6 +26,7 @@ type ServiceRegistry struct {
 	PaymentService        *services.PaymentService
 	NotificationService   *services.NotificationService
 	GrowthService         *services.GrowthService
+	PremiumPackService    *services.PremiumPackService
 }
 
 func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
@@ -50,5 +51,6 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		PaymentService:        services.NewPaymentService(db),
 		NotificationService:   notificationSvc,
 		GrowthService:         services.NewGrowthService(db),
+		PremiumPackService:    services.NewPremiumPackService(db),
 	}
 }

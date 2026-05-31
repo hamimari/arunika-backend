@@ -61,28 +61,32 @@ func TestGetActivePacks_ReturnsOnlyActive(t *testing.T) {
 	assert.Len(t, data, 1)
 }
 
-func TestGetActivePacks_FilteredByType(t *testing.T) {
+func TestGetActivePacks_TypeParamIgnored(t *testing.T) {
 	gormDB, mock := setupPremiumPackDB(t)
 	svc := services.NewPremiumPackService(gormDB)
 	h := NewPremiumPackHandler(svc)
 
 	now := time.Now()
+	// Both types are returned — type query param is intentionally ignored.
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow("id-5", "Bulanan", "Akses 1 bulan", 39000, "subscription", nil, false, true, 1, now, now)
+		AddRow("id-5", "Bulanan", "Akses 1 bulan", 39000, "subscription", nil, false, true, 1, now, now).
+		AddRow("id-1", "Paket Hutan", "8 Hewan Hutan", 29000, "content", nil, false, true, 2, now, now)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE is_active = true AND type = $1 ORDER BY sort_order asc`)).
-		WithArgs("subscription").
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE is_active = true ORDER BY sort_order asc`)).
 		WillReturnRows(rows)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest(http.MethodGet, "/premium/packs?type=subscription", nil)
 	c.Request.URL.RawQuery = "type=subscription"
-	// simulate gin query param
 	c.Params = gin.Params{}
 	h.GetActivePacks(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].([]interface{})
+	assert.Len(t, data, 2)
 }
 
 // ─── Admin: GET /admin/premium/packs ─────────────────────────────────────────

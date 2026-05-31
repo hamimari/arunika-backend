@@ -23,14 +23,13 @@ func (PremiumPackage) TableName() string {
 	return "premium_packages"
 }
 
-// FindActivePremiumPackages returns active packages, optionally filtered by type, ordered by sort_order.
+// FindActivePremiumPackages returns all active packages ordered by sort_order.
+// The packType parameter is intentionally ignored — the public endpoint always
+// returns every active pack (both subscription and content) so the Flutter app
+// can determine banner visibility based on the full active set.
 func FindActivePremiumPackages(db *gorm.DB, packType string) ([]PremiumPackage, error) {
 	var packs []PremiumPackage
-	q := db.Where("is_active = true")
-	if packType != "" {
-		q = q.Where("type = ?", packType)
-	}
-	result := q.Order("sort_order asc").Find(&packs)
+	result := db.Where("is_active = true").Order("sort_order asc").Find(&packs)
 	return packs, result.Error
 }
 

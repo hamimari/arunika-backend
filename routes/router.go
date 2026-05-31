@@ -102,6 +102,10 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		payment.POST("/create", paymentHandler.CreateTransaction)
 	}
 
+	// ── Premium Packs ─────────────────────────────────────────────────────────
+	premiumPackHandler := handlers.NewPremiumPackHandler(reg.PremiumPackService)
+	r.GET("/premium/packs", premiumPackHandler.GetActivePacks) // public — no auth
+
 	// ── Notifications ─────────────────────────────────────────────────────────
 	notifHandler := handlers.NewNotificationHandler(reg.NotificationService)
 	notif := r.Group("/notifications")
@@ -132,7 +136,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	bannerHandler := handlers.NewBannerHandler(reg.BannerService)
 
 	// Public banner endpoint for mobile app home screen
-	r.GET("/banners", middlewares.JWTAuthMiddleware(rdb), bannerHandler.GetActiveBanners)
+	r.GET("/banners", bannerHandler.GetActiveBanners)
 
 	adminAuth := r.Group("/admin/auth")
 	{
@@ -219,6 +223,28 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.PUT("/content/categories/:id", adminContentHandler.UpdateCategory)
 		admin.DELETE("/content/categories/:id", adminContentHandler.DeleteCategory)
 		admin.PATCH("/content/categories/:id/visibility", adminContentHandler.ToggleCategoryVisibility)
+
+		// Content — Dongeng Pages
+		admin.GET("/content/dongen-pages", adminContentHandler.ListDongengPages)
+		admin.GET("/content/dongen-pages/:id", adminContentHandler.GetDongengPage)
+		admin.POST("/content/dongen-pages", adminContentHandler.CreateDongengPage)
+		admin.PUT("/content/dongen-pages/:id", adminContentHandler.UpdateDongengPage)
+		admin.DELETE("/content/dongen-pages/:id", adminContentHandler.DeleteDongengPage)
+
+		// Content — AR Card Categories
+		admin.GET("/content/ar-card-categories", adminContentHandler.ListArCardCategories)
+		admin.POST("/content/ar-card-categories", adminContentHandler.CreateArCardCategory)
+		admin.GET("/content/ar-card-categories/:id", adminContentHandler.GetArCardCategory)
+		admin.PUT("/content/ar-card-categories/:id", adminContentHandler.UpdateArCardCategory)
+		admin.DELETE("/content/ar-card-categories/:id", adminContentHandler.DeleteArCardCategory)
+		admin.PATCH("/content/ar-card-categories/:id/visibility", adminContentHandler.ToggleArCardCategoryVisibility)
+
+		// Premium Packs
+		admin.GET("/premium/packs", premiumPackHandler.AdminListPacks)
+		admin.POST("/premium/packs", premiumPackHandler.AdminCreatePack)
+		admin.PUT("/premium/packs/:id", premiumPackHandler.AdminUpdatePack)
+		admin.DELETE("/premium/packs/:id", premiumPackHandler.AdminDeletePack)
+		admin.PATCH("/premium/packs/:id/visibility", premiumPackHandler.AdminToggleVisibility)
 	}
 
 	return r

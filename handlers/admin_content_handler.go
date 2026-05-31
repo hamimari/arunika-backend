@@ -458,3 +458,163 @@ func (h *AdminContentHandler) ToggleCategoryVisibility(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"hidden": hidden})
 }
+
+// ─── Dongeng Pages ────────────────────────────────────────────────────────────
+
+func (h *AdminContentHandler) ListDongengPages(c *gin.Context) {
+	dongengId := c.Query("dongeng_id")
+	if dongengId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dongeng_id query param is required"})
+		return
+	}
+	pages, err := h.svc.ListDongengPages(dongengId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pages})
+}
+
+func (h *AdminContentHandler) GetDongengPage(c *gin.Context) {
+	page, err := h.svc.GetDongengPage(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": page})
+}
+
+func (h *AdminContentHandler) CreateDongengPage(c *gin.Context) {
+	var input models.DongengPage
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	page, err := h.svc.CreateDongengPage(input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": page})
+}
+
+func (h *AdminContentHandler) UpdateDongengPage(c *gin.Context) {
+	var input models.DongengPage
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	page, err := h.svc.UpdateDongengPage(c.Param("id"), input)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": page})
+}
+
+func (h *AdminContentHandler) DeleteDongengPage(c *gin.Context) {
+	if err := h.svc.DeleteDongengPage(c.Param("id")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// ─── AR Card Categories ───────────────────────────────────────────────────────
+
+type arCardCategoryResponse struct {
+	ID        interface{} `json:"id"`
+	Name      string      `json:"name"`
+	Emoji     string      `json:"emoji"`
+	ImageURL  string      `json:"image_url"`
+	ParentID  interface{} `json:"parent_id,omitempty"`
+	SortOrder int         `json:"sort_order"`
+	Hidden    bool        `json:"hidden"`
+	CreatedAt interface{} `json:"created_at"`
+	UpdatedAt interface{} `json:"updated_at"`
+}
+
+func toArCardCategoryResponse(item models.ArCardCategory) arCardCategoryResponse {
+	return arCardCategoryResponse{
+		ID:        item.ID,
+		Name:      item.Name,
+		Emoji:     item.Emoji,
+		ImageURL:  item.ImageURL,
+		ParentID:  item.ParentID,
+		SortOrder: item.SortOrder,
+		Hidden:    item.IsDeleted,
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func (h *AdminContentHandler) ListArCardCategories(c *gin.Context) {
+	items, err := h.svc.ListArCardCategories()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp := make([]arCardCategoryResponse, len(items))
+	for i, item := range items {
+		resp[i] = toArCardCategoryResponse(item)
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp, "total": len(resp)})
+}
+
+func (h *AdminContentHandler) GetArCardCategory(c *gin.Context) {
+	item, err := h.svc.GetArCardCategory(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": toArCardCategoryResponse(*item)})
+}
+
+func (h *AdminContentHandler) CreateArCardCategory(c *gin.Context) {
+	var input models.ArCardCategory
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	item, err := h.svc.CreateArCardCategory(input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": toArCardCategoryResponse(*item)})
+}
+
+func (h *AdminContentHandler) UpdateArCardCategory(c *gin.Context) {
+	var input models.ArCardCategory
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	item, err := h.svc.UpdateArCardCategory(c.Param("id"), input)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": toArCardCategoryResponse(*item)})
+}
+
+func (h *AdminContentHandler) DeleteArCardCategory(c *gin.Context) {
+	if err := h.svc.DeleteArCardCategory(c.Param("id")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func (h *AdminContentHandler) ToggleArCardCategoryVisibility(c *gin.Context) {
+	hidden, err := visibilityBody(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.ToggleArCardCategoryVisibility(c.Param("id"), hidden); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"hidden": hidden})
+}

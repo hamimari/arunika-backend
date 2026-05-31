@@ -99,7 +99,7 @@ func (s *AdminContentService) UpdateArCard(id string, input models.ArCards) (*mo
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"type", "title", "file_url", "sound_url", "short_code", "hidden",
+		"type", "title", "file_url", "sound_url", "short_code", "hidden", "image_url", "printable_img",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -304,4 +304,78 @@ func (s *AdminContentService) DeleteCategory(id string) error {
 
 func (s *AdminContentService) ToggleCategoryVisibility(id string, hidden bool) error {
 	return s.db.Model(&models.Categories{}).Where("id = ?", id).Update("hidden", hidden).Error
+}
+
+// ─── Dongeng Pages ────────────────────────────────────────────────────────────
+
+func (s *AdminContentService) ListDongengPages(dongengId string) ([]models.DongengPage, error) {
+	return models.FindPagesByDongengId(s.db, dongengId)
+}
+
+func (s *AdminContentService) GetDongengPage(id string) (*models.DongengPage, error) {
+	var item models.DongengPage
+	err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error
+	return &item, err
+}
+
+func (s *AdminContentService) CreateDongengPage(input models.DongengPage) (*models.DongengPage, error) {
+	if err := s.db.Create(&input).Error; err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func (s *AdminContentService) UpdateDongengPage(id string, input models.DongengPage) (*models.DongengPage, error) {
+	var item models.DongengPage
+	if err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error; err != nil {
+		return nil, errors.New("not found")
+	}
+	if err := s.db.Model(&item).Select("page_number", "image_url", "text", "audio_url").Updates(input).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (s *AdminContentService) DeleteDongengPage(id string) error {
+	return s.db.Model(&models.DongengPage{}).Where("id = ?", id).Update("is_deleted", true).Error
+}
+
+// ─── AR Card Categories ───────────────────────────────────────────────────────
+
+func (s *AdminContentService) ListArCardCategories() ([]models.ArCardCategory, error) {
+	var items []models.ArCardCategory
+	err := s.db.Order("sort_order ASC, created_at DESC").Find(&items).Error
+	return items, err
+}
+
+func (s *AdminContentService) GetArCardCategory(id string) (*models.ArCardCategory, error) {
+	var item models.ArCardCategory
+	err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error
+	return &item, err
+}
+
+func (s *AdminContentService) CreateArCardCategory(input models.ArCardCategory) (*models.ArCardCategory, error) {
+	if err := s.db.Create(&input).Error; err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func (s *AdminContentService) UpdateArCardCategory(id string, input models.ArCardCategory) (*models.ArCardCategory, error) {
+	var item models.ArCardCategory
+	if err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error; err != nil {
+		return nil, errors.New("not found")
+	}
+	if err := s.db.Model(&item).Select("name", "emoji", "image_url", "parent_id", "sort_order").Updates(input).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (s *AdminContentService) DeleteArCardCategory(id string) error {
+	return s.db.Model(&models.ArCardCategory{}).Where("id = ?", id).Update("is_deleted", true).Error
+}
+
+func (s *AdminContentService) ToggleArCardCategoryVisibility(id string, hidden bool) error {
+	return s.db.Model(&models.ArCardCategory{}).Where("id = ?", id).Update("is_deleted", hidden).Error
 }

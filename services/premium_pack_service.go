@@ -91,11 +91,8 @@ type ToggleVisibilityInput struct {
 
 // ToggleVisibility updates the is_active field for a package.
 func (s *PremiumPackService) ToggleVisibility(id string, isActive bool) (*models.PremiumPackage, error) {
-	pack, err := models.FindPremiumPackageByID(s.db, id)
-	if err != nil {
+	if err := s.db.Model(&models.PremiumPackage{}).Where("id = ?", id).Update("is_active", isActive).Error; err != nil {
 		return nil, err
 	}
-	pack.IsActive = isActive
-	result := s.db.Save(pack)
-	return pack, result.Error
+	return models.FindPremiumPackageByID(s.db, id)
 }
