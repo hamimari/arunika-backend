@@ -1,0 +1,36 @@
+# Version control
+.git/
+.gitignore
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Dependencies — reinstalled inside the image
+node_modules/
+
+# Previous builds
+dist/
+dist-ssr/
+
+# Environment files — never bake secrets into the image
+.env
+.env.local
+.env.*.local
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+
+# Test artefacts
+coverage/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# OpenSpec / docs
+openspec/
+README.md
