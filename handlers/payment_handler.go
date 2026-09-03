@@ -2,18 +2,27 @@ package handlers
 
 import (
 	"arunika_backend/services"
+	"log/slog"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"net/http"
 )
 
 type PaymentHandler struct {
 	paymentService      *services.PaymentService
 	notificationService *services.NotificationService
+	premiumPackService  *services.PremiumPackService
+	userService         *services.UserService
 }
 
-func NewPaymentHandler(ps *services.PaymentService, ns *services.NotificationService) *PaymentHandler {
-	return &PaymentHandler{paymentService: ps, notificationService: ns}
+type CreatePaymentRequest struct {
+	PlanName string `json:"plan_name" binding:"required"`
+	Amount   int64  `json:"amount" binding:"required"`
+}
+
+func NewPaymentHandler(ps *services.PaymentService, ns *services.NotificationService, pp *services.PremiumPackService, us *services.UserService) *PaymentHandler {
+	return &PaymentHandler{paymentService: ps, notificationService: ns, premiumPackService: pp, userService: us}
 }
 
 // CreateTransaction handles POST /payment/create
@@ -28,8 +37,24 @@ func (h *PaymentHandler) CreateTransaction(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
 		return
 	}
+	user, _, err := h.userService.GetUserByID(userID.String())
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+	}
 
-	snapResp, err := h.paymentService.CreateSnapTransaction(userID)
+	var req CreatePaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("CreatePayment: invalid input", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
+		return
+	}
+
+	premiumPack, err := h.premiumPackService.GetByName(req.PlanName)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid package"})
+		return
+	}
+	snapResp, err := h.paymentService.CreateSnapTransaction(user, premiumPack)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create payment"})
 		return

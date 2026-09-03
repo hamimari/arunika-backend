@@ -6,14 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
-	"gorm.io/gorm"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type PaymentService struct {
@@ -30,14 +31,15 @@ type SnapResponse struct {
 }
 
 // CreateSnapTransaction creates a Midtrans Snap transaction for a monthly subscription.
-func (s *PaymentService) CreateSnapTransaction(userID uuid.UUID) (*SnapResponse, error) {
+func (s *PaymentService) CreateSnapTransaction(user *models.Parent, premiumPackage *models.PremiumPackage) (*SnapResponse, error) {
 	serverKey := os.Getenv("MIDTRANS_SERVER_KEY")
 	if serverKey == "" {
 		return nil, fmt.Errorf("MIDTRANS_SERVER_KEY not configured")
 	}
 
-	orderID := fmt.Sprintf("sub-%s-%d", userID.String(), time.Now().UnixMilli())
-	grossAmount := 49000 // IDR 49,000 / month
+	id := strings.ReplaceAll(user.ID.String(), "-", "")
+	orderID := fmt.Sprintf("sub-%s-%d", id, time.Now().UnixMilli())
+	grossAmount := premiumPackage.PriceIdr
 
 	payload := map[string]interface{}{
 		"transaction_details": map[string]interface{}{
@@ -45,14 +47,16 @@ func (s *PaymentService) CreateSnapTransaction(userID uuid.UUID) (*SnapResponse,
 			"gross_amount": grossAmount,
 		},
 		"customer_details": map[string]interface{}{
-			"email": "",
+			"first_name": user.Name,
+			"email":      user.EmailAddress,
+			"phone":      user.PhoneNumber,
 		},
 		"item_details": []map[string]interface{}{
 			{
-				"id":       "edu-premium-monthly",
+				"id":       premiumPackage.ID,
 				"price":    grossAmount,
 				"quantity": 1,
-				"name":     "Arunika Premium Bulanan",
+				"name":     premiumPackage.Name,
 			},
 		},
 	}
@@ -84,11 +88,10 @@ func (s *PaymentService) CreateSnapTransaction(userID uuid.UUID) (*SnapResponse,
 
 	// Store the pending order ID in user_subscriptions for later webhook matching.
 	if err := s.db.Model(&models.UserSubscription{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", user.ID).
 		Update("midtrans_order_id", orderID).Error; err != nil {
 		slog.Warn("PaymentService: failed to store order_id", "error", err)
 	}
-
 	return &snapResp, nil
 }
 

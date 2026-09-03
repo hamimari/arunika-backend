@@ -90,7 +90,7 @@ services:
   # ─── Backoffice (Admin UI) ────────────────────────────────────────────────────
   backoffice:
     build:
-      context: ../arunika_backoffice
+      context: ../arunika-backoffice
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}

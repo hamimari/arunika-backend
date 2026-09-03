@@ -4,12 +4,13 @@ import (
 	"arunika_backend/handlers"
 	"arunika_backend/middlewares"
 	"arunika_backend/registry"
+	"net/http"
+	"time"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
-	"net/http"
-	"time"
 )
 
 func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) *gin.Engine {
@@ -94,7 +95,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	r.GET("/badges", middlewares.JWTAuthMiddleware(rdb), badgeHandler.GetBadges)
 
 	// ── Payment ──────────────────────────────────────────────────────────────
-	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService)
+	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService, reg.PremiumPackService, reg.UserService)
 	r.POST("/payment/webhook", paymentHandler.Webhook) // no JWT — called by Midtrans
 	payment := r.Group("/payment")
 	payment.Use(middlewares.JWTAuthMiddleware(rdb))

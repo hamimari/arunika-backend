@@ -2,6 +2,7 @@ package services
 
 import (
 	"arunika_backend/models"
+
 	"gorm.io/gorm"
 )
 
@@ -26,7 +27,7 @@ func (s *PremiumPackService) GetAllPacks() ([]models.PremiumPackage, error) {
 type CreatePremiumPackInput struct {
 	Name        string  `json:"name"          binding:"required"`
 	Subtitle    string  `json:"subtitle"      binding:"required"`
-	PriceIDR    int     `json:"price_idr"     binding:"required,min=1"`
+	PriceIdr    int     `json:"price_idr" binding:"required,min=1"`
 	Type        string  `json:"type"          binding:"required,oneof=content subscription"`
 	BadgeLabel  *string `json:"badge_label"`
 	IsBestValue bool    `json:"is_best_value"`
@@ -38,7 +39,7 @@ func (s *PremiumPackService) CreatePack(input CreatePremiumPackInput) (*models.P
 	pack := models.PremiumPackage{
 		Name:        input.Name,
 		Subtitle:    input.Subtitle,
-		PriceIDR:    input.PriceIDR,
+		PriceIdr:    input.PriceIdr,
 		Type:        input.Type,
 		BadgeLabel:  input.BadgeLabel,
 		IsBestValue: input.IsBestValue,
@@ -67,7 +68,7 @@ func (s *PremiumPackService) UpdatePack(id string, input UpdatePremiumPackInput)
 	}
 	pack.Name = input.Name
 	pack.Subtitle = input.Subtitle
-	pack.PriceIDR = input.PriceIDR
+	pack.PriceIdr = input.PriceIDR
 	pack.Type = input.Type
 	pack.BadgeLabel = input.BadgeLabel
 	pack.IsBestValue = input.IsBestValue
@@ -95,4 +96,8 @@ func (s *PremiumPackService) ToggleVisibility(id string, isActive bool) (*models
 		return nil, err
 	}
 	return models.FindPremiumPackageByID(s.db, id)
+}
+
+func (s *PremiumPackService) GetByName(name string) (*models.PremiumPackage, error) {
+	return models.FindPremiumPackageByName(s.db, name)
 }

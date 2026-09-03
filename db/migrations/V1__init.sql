@@ -48,7 +48,7 @@ create table if not exists password_reset_tokens (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT false
-)
+);
 
 create table if not exists ar_cards (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -58,7 +58,7 @@ create table if not exists ar_cards (
     short_code VARCHAR(100) UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP NULL
-)
+);
 
 create table if not exists categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,7 +67,7 @@ create table if not exists categories (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT false
-)
+);
 
 create table if not exists features (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

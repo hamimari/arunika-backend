@@ -3,9 +3,10 @@ package services
 import (
 	"arunika_backend/models"
 	"fmt"
+	"time"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"time"
 )
 
 type UserService struct {
