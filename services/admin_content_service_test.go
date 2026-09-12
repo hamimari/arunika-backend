@@ -725,3 +725,134 @@ func TestAdminContentService_ToggleCategoryVisibility(t *testing.T) {
 	err := svc.ToggleCategoryVisibility(id, false)
 	assert.NoError(t, err)
 }
+
+// ─── Dongeng Categories ─────────────────────────────────────────────────────────
+
+func TestAdminContentService_ListDongengCategories_Success(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	id := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT \* FROM "dongeng_categories" ORDER BY sort_order ASC, created_at DESC`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "emoji", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
+			AddRow(id, "Fairy Tales", "🧚", "", nil, 0, now, now, false))
+
+	items, err := svc.ListDongengCategories()
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Equal(t, "Fairy Tales", items[0].Name)
+}
+
+func TestAdminContentService_GetDongengCategory_Success(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	id := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "dongeng_categories" WHERE id = $1 AND is_deleted = false`)).
+		WithArgs(id.String(), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "emoji", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
+			AddRow(id, "Islamic", "🕌", "", nil, 1, now, now, false))
+
+	item, err := svc.GetDongengCategory(id.String())
+	require.NoError(t, err)
+	assert.Equal(t, "Islamic", item.Name)
+}
+
+func TestAdminContentService_CreateDongengCategory_Success(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	input := models.DongengCategory{
+		Name:  "Adventure",
+		Emoji: "🗺️",
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "dongeng_categories"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+
+	result, err := svc.CreateDongengCategory(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Adventure", result.Name)
+}
+
+func TestAdminContentService_CreateDongengCategory_DBError(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "dongeng_categories"`).
+		WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
+
+	_, err := svc.CreateDongengCategory(models.DongengCategory{Name: "Fail"})
+	assert.Error(t, err)
+}
+
+func TestAdminContentService_UpdateDongengCategory_NotFound(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	mock.ExpectQuery(`SELECT \* FROM "dongeng_categories" WHERE id = \$1`).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	_, err := svc.UpdateDongengCategory("missing", models.DongengCategory{})
+	assert.EqualError(t, err, "not found")
+}
+
+func TestAdminContentService_UpdateDongengCategory_Success(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	id := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "dongeng_categories" WHERE id = $1 AND is_deleted = false`)).
+		WithArgs(id.String(), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "emoji", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
+			AddRow(id, "Fairy Tales", "🧚", "", nil, 0, now, now, false))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "dongeng_categories" SET`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	result, err := svc.UpdateDongengCategory(id.String(), models.DongengCategory{Name: "Fairy Tales & Fables"})
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+func TestAdminContentService_DeleteDongengCategory(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	id := uuid.New().String()
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "dongeng_categories" SET "is_deleted"=\$1,"updated_at"=\$2 WHERE id = \$3`).
+		WithArgs(true, sqlmock.AnyArg(), id).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err := svc.DeleteDongengCategory(id)
+	assert.NoError(t, err)
+}
+
+func TestAdminContentService_ToggleDongengCategoryVisibility(t *testing.T) {
+	db, mock := setupAdminContentDB(t)
+	svc := NewAdminContentService(db)
+
+	id := uuid.New().String()
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "dongeng_categories" SET "is_deleted"=\$1,"updated_at"=\$2 WHERE id = \$3`).
+		WithArgs(true, sqlmock.AnyArg(), id).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err := svc.ToggleDongengCategoryVisibility(id, true)
+	assert.NoError(t, err)
+}

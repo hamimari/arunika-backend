@@ -51,6 +51,7 @@ func (s *AdminContentService) UpdateFairyTale(id string, input models.Dongeng) (
 	if err := s.db.Model(&item).Select(
 		"title", "age_start", "age_end", "image_url", "audio_url",
 		"is_free", "category_id", "duration", "hidden",
+		"dongeng_category_id", "dongeng_sub_category_id",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -378,4 +379,44 @@ func (s *AdminContentService) DeleteArCardCategory(id string) error {
 
 func (s *AdminContentService) ToggleArCardCategoryVisibility(id string, hidden bool) error {
 	return s.db.Model(&models.ArCardCategory{}).Where("id = ?", id).Update("is_deleted", hidden).Error
+}
+
+// ─── Dongeng Categories ────────────────────────────────────────────────────────
+
+func (s *AdminContentService) ListDongengCategories() ([]models.DongengCategory, error) {
+	var items []models.DongengCategory
+	err := s.db.Order("sort_order ASC, created_at DESC").Find(&items).Error
+	return items, err
+}
+
+func (s *AdminContentService) GetDongengCategory(id string) (*models.DongengCategory, error) {
+	var item models.DongengCategory
+	err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error
+	return &item, err
+}
+
+func (s *AdminContentService) CreateDongengCategory(input models.DongengCategory) (*models.DongengCategory, error) {
+	if err := s.db.Create(&input).Error; err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func (s *AdminContentService) UpdateDongengCategory(id string, input models.DongengCategory) (*models.DongengCategory, error) {
+	var item models.DongengCategory
+	if err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error; err != nil {
+		return nil, errors.New("not found")
+	}
+	if err := s.db.Model(&item).Select("name", "emoji", "image_url", "parent_id", "sort_order").Updates(input).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (s *AdminContentService) DeleteDongengCategory(id string) error {
+	return s.db.Model(&models.DongengCategory{}).Where("id = ?", id).Update("is_deleted", true).Error
+}
+
+func (s *AdminContentService) ToggleDongengCategoryVisibility(id string, hidden bool) error {
+	return s.db.Model(&models.DongengCategory{}).Where("id = ?", id).Update("is_deleted", hidden).Error
 }

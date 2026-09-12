@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -38,9 +40,17 @@ func setupHandlerDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
 
 // ─── DongengHandler ───────────────────────────────────────────────────────────
 
+func newTestDongengService(db *gorm.DB) *services.DongengService {
+	return services.NewDongengService(db, services.NewProductService(db), services.NewEntitlementService(db))
+}
+
+func newTestArService(db *gorm.DB) *services.ArService {
+	return services.NewArService(db, services.NewProductService(db), services.NewEntitlementService(db))
+}
+
 func TestDongengHandler_GetFairyTales_Success(t *testing.T) {
 	gormDB, mock := setupHandlerDB(t)
-	svc := services.NewDongengService(gormDB)
+	svc := newTestDongengService(gormDB)
 	h := NewDongengHandler(svc)
 
 	id1 := uuid.New()
@@ -73,7 +83,7 @@ func TestDongengHandler_GetFairyTales_Success(t *testing.T) {
 
 func TestDongengHandler_GetFairyTales_DBError(t *testing.T) {
 	gormDB, mock := setupHandlerDB(t)
-	svc := services.NewDongengService(gormDB)
+	svc := newTestDongengService(gormDB)
 	h := NewDongengHandler(svc)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "dongengs" WHERE is_deleted = $1`)).
@@ -91,7 +101,7 @@ func TestDongengHandler_GetFairyTales_DBError(t *testing.T) {
 
 func TestDongengHandler_GetFairyTaleByID_NotFound(t *testing.T) {
 	gormDB, mock := setupHandlerDB(t)
-	svc := services.NewDongengService(gormDB)
+	svc := newTestDongengService(gormDB)
 	h := NewDongengHandler(svc)
 
 	mock.ExpectQuery(`SELECT \* FROM "dongengs" WHERE id = \$1`).
@@ -107,11 +117,118 @@ func TestDongengHandler_GetFairyTaleByID_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestDongengHandler_RecordPlay_Success(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := newTestDongengService(gormDB)
+	h := NewDongengHandler(svc)
+
+	dongengID := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "dongeng_play_history"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/fairy-tales/"+dongengID.String()+"/play", nil)
+	c.Params = gin.Params{{Key: "id", Value: dongengID.String()}}
+	c.Set("userID", uuid.New().String())
+
+	h.RecordPlay(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// A guest (no authenticated user) has nothing to attribute a play to — this
+// must be a no-op success, not a 401, so it never blocks a guest watching
+// free content (see the fix for the "guest gets kicked to login" bug).
+func TestDongengHandler_RecordPlay_Anonymous_NoOpSuccess(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := newTestDongengService(gormDB)
+	h := NewDongengHandler(svc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/fairy-tales/"+uuid.New().String()+"/play", nil)
+	c.Params = gin.Params{{Key: "id", Value: uuid.New().String()}}
+
+	h.RecordPlay(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDongengHandler_UpdateProgressHandler_Success(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := newTestDongengService(gormDB)
+	h := NewDongengHandler(svc)
+
+	dongengID := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "dongeng_play_history"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := strings.NewReader(`{"progress_seconds": 55}`)
+	c.Request = httptest.NewRequest(http.MethodPut, "/fairy-tales/"+dongengID.String()+"/play", body)
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: dongengID.String()}}
+	c.Set("userID", uuid.New().String())
+
+	h.UpdateProgressHandler(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDongengHandler_GetHistory_Success(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := newTestDongengService(gormDB)
+	h := NewDongengHandler(svc)
+
+	userID := uuid.New()
+	dongengID := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT h.dongeng_id, h.progress_seconds, d.duration AS total_seconds, h.started_at FROM dongeng_play_history h JOIN dongengs d ON d.id = h.dongeng_id AND d.is_deleted = false WHERE h.user_id = $1 ORDER BY h.updated_at DESC LIMIT $2`)).
+		WithArgs(userID, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"dongeng_id", "progress_seconds", "total_seconds", "started_at"}).
+			AddRow(dongengID, 10, int64(120), now))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/fairy-tales/history", nil)
+	c.Set("userID", userID.String())
+
+	h.GetHistory(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.NotNil(t, resp["data"])
+}
+
+func TestDongengHandler_GetHistory_Unauthorized(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := newTestDongengService(gormDB)
+	h := NewDongengHandler(svc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/fairy-tales/history", nil)
+
+	h.GetHistory(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 // ─── ArHandler ────────────────────────────────────────────────────────────────
 
 func TestArHandler_FindById_NotFound(t *testing.T) {
 	gormDB, mock := setupHandlerDB(t)
-	svc := services.NewArService(gormDB)
+	svc := newTestArService(gormDB)
 	h := NewArHandler(svc)
 
 	mock.ExpectQuery(`SELECT \* FROM "ar_cards" WHERE id = \$1`).
@@ -129,7 +246,7 @@ func TestArHandler_FindById_NotFound(t *testing.T) {
 
 func TestArHandler_FindById_Success(t *testing.T) {
 	gormDB, mock := setupHandlerDB(t)
-	svc := services.NewArService(gormDB)
+	svc := newTestArService(gormDB)
 	h := NewArHandler(svc)
 
 	now := time.Now()
@@ -140,6 +257,10 @@ func TestArHandler_FindById_Success(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
 		WithArgs("card-1", 1).
 		WillReturnRows(rows)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).
+		WithArgs("card-1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"product_id", "ar_card_id"}))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -279,6 +400,35 @@ func TestAuthHandler_ForgotPassword_InvalidEmail(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestAuthHandler_ForgotPassword_UnknownEmail_StillReturns200(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE email_address = $1 ORDER BY "parents"."id" LIMIT $2`)).
+		WithArgs("nobody@example.com", 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "phone_number", "email_address", "password",
+			"address", "city", "created_at", "updated_at", "is_deleted",
+		}))
+
+	body := `{"email": "nobody@example.com"}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/forgot-password", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.ForgotPassword(c)
+
+	// Must be indistinguishable from a real send — this is what actually
+	// closes the account-enumeration hole, not just the service-level fix.
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp["message"], "nobody@example.com")
+	assert.NotContains(t, w.Body.String(), "not found")
+}
+
 func TestAuthHandler_ResetPassword_MissingToken(t *testing.T) {
 	gormDB, _ := setupHandlerDB(t)
 	svc := services.NewAuthService(gormDB, nil)
@@ -294,6 +444,45 @@ func TestAuthHandler_ResetPassword_MissingToken(t *testing.T) {
 	h.ResetPassword(c)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestAuthHandler_ResetPassword_PasswordTooShort(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	body := `{"new_password": "short"}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/reset-password?token=whatever", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.ResetPassword(c)
+
+	// Rejected before ever touching the token/DB — a direct API call can't
+	// bypass the same 8-character minimum the web page enforces client-side.
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestAuthHandler_ResetPasswordPage_ServesTheHTMLPage(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	require.NoError(t, err)
+	prevWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(repoRoot))
+	defer os.Chdir(prevWd)
+
+	svc := services.NewAuthService(nil, nil)
+	h := NewAuthHandler(svc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/reset-password?token=abc", nil)
+
+	h.ResetPasswordPage(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "Reset Password")
 }
 
 // ─── AdminUserHandler ─────────────────────────────────────────────────────────
@@ -912,21 +1101,22 @@ func TestAdminPaymentHandler_List_Success(t *testing.T) {
 	h := NewAdminPaymentHandler(svc)
 
 	id1 := uuid.New()
+	orderID := uuid.New()
 	uid := uuid.New()
 	now := time.Now()
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "payment_transactions"`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "payments"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	cols := []string{
-		"id", "order_id", "user_id", "transaction_id",
+		"id", "order_id", "provider_order_id", "user_id", "transaction_id",
 		"transaction_status", "payment_type", "gross_amount",
 		"status_code", "fraud_status", "raw_payload",
 		"created_at", "updated_at",
 	}
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payment_transactions" ORDER BY created_at DESC LIMIT $1`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payments" ORDER BY created_at DESC LIMIT $1`)).
 		WithArgs(20).
-		WillReturnRows(sqlmock.NewRows(cols).AddRow(id1, "sub-001", uid, "txn-001", "settlement", "gopay", "50000", "200", "accept", "{}", now, now))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(id1, orderID, "order-001", uid, "txn-001", "settlement", "gopay", "50000", "200", "accept", "{}", now, now))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -946,10 +1136,10 @@ func TestAdminPaymentHandler_List_DBError(t *testing.T) {
 	svc := services.NewAdminPaymentService(gormDB)
 	h := NewAdminPaymentHandler(svc)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "payment_transactions"`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "payments"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payment_transactions" ORDER BY created_at DESC LIMIT $1`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payments" ORDER BY created_at DESC LIMIT $1`)).
 		WithArgs(20).
 		WillReturnError(gorm.ErrInvalidDB)
 
@@ -968,19 +1158,20 @@ func TestAdminPaymentHandler_Get_Success(t *testing.T) {
 	h := NewAdminPaymentHandler(svc)
 
 	id1 := uuid.New()
+	orderID := uuid.New()
 	uid := uuid.New()
 	now := time.Now()
 
 	cols := []string{
-		"id", "order_id", "user_id", "transaction_id",
+		"id", "order_id", "provider_order_id", "user_id", "transaction_id",
 		"transaction_status", "payment_type", "gross_amount",
 		"status_code", "fraud_status", "raw_payload",
 		"created_at", "updated_at",
 	}
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payment_transactions" WHERE id = $1 ORDER BY "payment_transactions"."id" LIMIT $2`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payments" WHERE id = $1 ORDER BY "payments"."id" LIMIT $2`)).
 		WithArgs(id1.String(), 1).
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow(id1, "sub-001", uid, "txn-001", "settlement", "gopay", "50000", "200", "accept", "{}", now, now))
+			AddRow(id1, orderID, "order-001", uid, "txn-001", "settlement", "gopay", "50000", "200", "accept", "{}", now, now))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1000,7 +1191,7 @@ func TestAdminPaymentHandler_Get_NotFound(t *testing.T) {
 	svc := services.NewAdminPaymentService(gormDB)
 	h := NewAdminPaymentHandler(svc)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payment_transactions" WHERE id = $1 ORDER BY "payment_transactions"."id" LIMIT $2`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payments" WHERE id = $1 ORDER BY "payments"."id" LIMIT $2`)).
 		WithArgs("non-existent", 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 

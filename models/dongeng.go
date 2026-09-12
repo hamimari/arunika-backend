@@ -1,6 +1,9 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
 
 type Dongeng struct {
 	BaseModel
@@ -14,28 +17,44 @@ type Dongeng struct {
 	Duration   int64         `json:"duration"    gorm:"column:duration"`
 	Hidden     bool          `json:"hidden"      gorm:"column:hidden;default:false"`
 	Pages      []DongengPage `json:"pages"       gorm:"foreignKey:DongengId"`
+	// Structured category FKs, additive alongside the legacy free-text
+	// CategoryId above (which points at the unrelated generic `categories`
+	// table and is left untouched by this).
+	DongengCategoryID    *uuid.UUID       `gorm:"column:dongeng_category_id;type:uuid"     json:"dongeng_category_id,omitempty"`
+	DongengSubCategoryID *uuid.UUID       `gorm:"column:dongeng_sub_category_id;type:uuid" json:"dongeng_sub_category_id,omitempty"`
+	CategoryRef          *DongengCategory `gorm:"foreignKey:DongengCategoryID"             json:"category_ref,omitempty"`
+	SubCategoryRef       *DongengCategory `gorm:"foreignKey:DongengSubCategoryID"          json:"sub_category_ref,omitempty"`
 }
 
 // FindAllFairyTales returns a paginated, optionally-filtered list of dongengs
 // and the total matching count (for the caller to derive hasMore).
 // search is case-insensitive title prefix/substring match; empty string = no filter.
-// page is 1-indexed; perPage is the page size.
-func FindAllFairyTales(db *gorm.DB, search string, page, perPage int) ([]Dongeng, int64, error) {
+// categoryID/subCategoryID, when non-empty, filter to that dongeng_category_id/
+// dongeng_sub_category_id. page is 1-indexed; perPage is the page size.
+func FindAllFairyTales(db *gorm.DB, search string, page, perPage int, categoryID, subCategoryID string) ([]Dongeng, int64, error) {
 	var total int64
 	var fairyTales []Dongeng
 
-	base := db.Model(&Dongeng{}).Where("is_deleted = ?", false)
-	if search != "" {
-		base = base.Where("title ILIKE ?", "%"+search+"%")
+	applyFilters := func(q *gorm.DB) *gorm.DB {
+		q = q.Where("is_deleted = ?", false)
+		if search != "" {
+			q = q.Where("title ILIKE ?", "%"+search+"%")
+		}
+		if categoryID != "" {
+			q = q.Where("dongeng_category_id = ?", categoryID)
+		}
+		if subCategoryID != "" {
+			q = q.Where("dongeng_sub_category_id = ?", subCategoryID)
+		}
+		return q
 	}
+
+	base := applyFilters(db.Model(&Dongeng{}))
 	if err := base.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	findQ := db.Where("is_deleted = ?", false)
-	if search != "" {
-		findQ = findQ.Where("title ILIKE ?", "%"+search+"%")
-	}
+	findQ := applyFilters(db.Preload("CategoryRef").Preload("SubCategoryRef"))
 	offset := (page - 1) * perPage
 	if err := findQ.Limit(perPage).Offset(offset).Find(&fairyTales).Error; err != nil {
 		return nil, 0, err
@@ -44,13 +63,16 @@ func FindAllFairyTales(db *gorm.DB, search string, page, perPage int) ([]Dongeng
 	return fairyTales, total, nil
 }
 
-// FindFairyTaleByID returns a single dongeng with all its pages pre-loaded.
+// FindFairyTaleByID returns a single dongeng with all its pages and category
+// refs pre-loaded.
 func FindFairyTaleByID(db *gorm.DB, id string) (*Dongeng, error) {
 	var dongeng Dongeng
 	result := db.
 		Preload("Pages", func(db *gorm.DB) *gorm.DB {
 			return db.Where("is_deleted = ?", false).Order("page_number ASC")
 		}).
+		Preload("CategoryRef").
+		Preload("SubCategoryRef").
 		Where("id = ? AND is_deleted = ?", id, false).
 		First(&dongeng)
 	if result.Error != nil {

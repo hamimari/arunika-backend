@@ -147,6 +147,24 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"data": response})
 }
 
+// CheckAvailability handles GET /auth/check-availability?email=&phone=,
+// letting the signup flow warn the user before they fill in child data
+// instead of only failing at final submit.
+func (h *AuthHandler) CheckAvailability(c *gin.Context) {
+	email := c.Query("email")
+	phone := c.Query("phone")
+
+	emailTaken, phoneTaken, err := h.service.CheckAvailability(email, phone)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"email_taken": emailTaken,
+		"phone_taken": phoneTaken,
+	})
+}
+
 func (h *AuthHandler) SendOtp(c *gin.Context) {
 	var req models.Parent
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -220,12 +238,22 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
+	// Always respond the same way whether or not the email is registered, or
+	// whether the send actually succeeded — surfacing the difference would
+	// let this endpoint enumerate registered accounts. Real failures are
+	// logged server-side instead of being shown to the caller.
 	if err := h.service.ForgotPassword(req.Email); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		slog.Error("forgot password request failed", "error", err)
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Password reset link sent to " + req.Email})
+}
+
+// ResetPasswordPage serves the static web page the emailed reset link points
+// at. The token itself is parsed client-side from the URL query string; this
+// handler only serves the HTML/JS shell — the actual reset happens via the
+// POST endpoint below, registered on the same path.
+func (h *AuthHandler) ResetPasswordPage(c *gin.Context) {
+	c.File("templates/reset_password.html")
 }
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
@@ -236,10 +264,10 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	var req struct {
-		NewPassword string `json:"new_password"`
+		NewPassword string `json:"new_password" binding:"required,min=8"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.NewPassword == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
 		return
 	}
 

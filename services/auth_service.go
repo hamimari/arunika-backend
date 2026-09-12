@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -26,7 +27,7 @@ func NewAuthService(db *gorm.DB, redis *redis.Client) *AuthService {
 func (s *AuthService) GenerateJwtToken(userId, email string) (string, string, error) {
 	token, refreshToken, err := utils.GenerateJWT(userId, email)
 
-	refreshTokenExpiresAt := time.Now().Add(7 * 24 * time.Hour)
+	refreshTokenExpiresAt := time.Now().Add(7 * 24 * time.Hour) // session lifetime: 1 week
 	refreshTokenEntity := models.RefreshToken{
 		UserId:    userId,
 		Token:     refreshToken,
@@ -53,11 +54,36 @@ func (s *AuthService) Signup(request models.Parent) (models.Parent, error) {
 		return models.Parent{}, errors.New("email address already taken")
 	}
 
+	if existing, _ := models.FindUserByPhoneNumber(s.db, request.PhoneNumber); existing != nil {
+		return models.Parent{}, errors.New("phone number already taken")
+	}
+
 	if err := s.db.Create(&request).Error; err != nil {
 		return models.Parent{}, err
 	}
 
 	return request, nil
+}
+
+// CheckAvailability reports whether email/phone are already taken by an
+// existing account, so the client can surface this before the user fills in
+// child data (rather than only failing at final submit).
+func (s *AuthService) CheckAvailability(email, phone string) (emailTaken bool, phoneTaken bool, err error) {
+	if email != "" {
+		user, findErr := models.FindUserByEmail(s.db, email)
+		if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return false, false, findErr
+		}
+		emailTaken = user != nil
+	}
+	if phone != "" {
+		user, findErr := models.FindUserByPhoneNumber(s.db, phone)
+		if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return false, false, findErr
+		}
+		phoneTaken = user != nil
+	}
+	return emailTaken, phoneTaken, nil
 }
 
 func (s *AuthService) SendOtp(request models.Parent) (models.Parent, error) {
@@ -104,16 +130,28 @@ func (s *AuthService) Logout(ctx *gin.Context, token string, jti string, exp tim
 	return s.redis.Set(ctx, "blacklist:"+jti, "revoked", ttl).Err()
 }
 
+// ForgotPassword always returns nil for an unknown email — the caller
+// (AuthHandler.ForgotPassword) must respond identically whether or not the
+// account exists, otherwise this endpoint becomes an account-enumeration
+// oracle. Real failures (DB/email) are returned so they can be logged
+// server-side, but are never turned into a different client-visible outcome.
 func (s *AuthService) ForgotPassword(email string) error {
 	var user models.Parent
 	if err := s.db.Where("email_address = ?", email).First(&user).Error; err != nil {
-		return errors.New("user not found")
+		return nil
+	}
+
+	// Invalidate any previously issued, still-valid reset tokens for this
+	// user so only the newest emailed link works.
+	if err := s.db.Where("user_id = ?", user.ID).Delete(&models.PasswordResetToken{}).Error; err != nil {
+		return err
 	}
 
 	resetToken := uuid.NewString()
 	reset := models.PasswordResetToken{
-		UserID:    user.ID,
-		Token:     resetToken,
+		UserID: user.ID,
+		// Store only a hash — see PasswordResetToken.Token doc comment.
+		Token:     utils.HashResetToken(resetToken),
 		ExpiresAt: time.Now().Add(15 * time.Minute),
 	}
 
@@ -152,12 +190,23 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 	}
 
 	s.db.Delete(&reset)
+
+	// Revoke existing sessions: a leaked/compromised refresh token must stop
+	// working the moment the password changes. Already-issued access tokens
+	// remain valid until their own (short, 15-minute) expiry — revoking
+	// those too would mean checking every authenticated request against a
+	// per-user "password changed at" timestamp, a change to the hot
+	// JWTAuthMiddleware path affecting every request, not just this flow.
+	if err := models.DeleteAllRefreshTokensByUserId(s.db, reset.UserID.String()); err != nil {
+		slog.Error("failed to revoke refresh tokens after password reset", "user_id", reset.UserID, "error", err)
+	}
+
 	return nil
 }
 
 func (s *AuthService) VerifyResetToken(token string) (*models.PasswordResetToken, error) {
 	var reset models.PasswordResetToken
-	if err := s.db.Where("token = ?", token).First(&reset).Error; err != nil {
+	if err := s.db.Where("token = ?", utils.HashResetToken(token)).First(&reset).Error; err != nil {
 		return nil, errors.New("invalid token")
 	}
 

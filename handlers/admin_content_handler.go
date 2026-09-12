@@ -618,3 +618,102 @@ func (h *AdminContentHandler) ToggleArCardCategoryVisibility(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"hidden": hidden})
 }
+
+// ─── Dongeng Categories ───────────────────────────────────────────────────────
+
+type dongengCategoryResponse struct {
+	ID        interface{} `json:"id"`
+	Name      string      `json:"name"`
+	Emoji     string      `json:"emoji"`
+	ImageURL  string      `json:"image_url"`
+	ParentID  interface{} `json:"parent_id,omitempty"`
+	SortOrder int         `json:"sort_order"`
+	Hidden    bool        `json:"hidden"`
+	CreatedAt interface{} `json:"created_at"`
+	UpdatedAt interface{} `json:"updated_at"`
+}
+
+func toDongengCategoryResponse(item models.DongengCategory) dongengCategoryResponse {
+	return dongengCategoryResponse{
+		ID:        item.ID,
+		Name:      item.Name,
+		Emoji:     item.Emoji,
+		ImageURL:  item.ImageURL,
+		ParentID:  item.ParentID,
+		SortOrder: item.SortOrder,
+		Hidden:    item.IsDeleted,
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func (h *AdminContentHandler) ListDongengCategories(c *gin.Context) {
+	items, err := h.svc.ListDongengCategories()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp := make([]dongengCategoryResponse, len(items))
+	for i, item := range items {
+		resp[i] = toDongengCategoryResponse(item)
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp, "total": len(resp)})
+}
+
+func (h *AdminContentHandler) GetDongengCategory(c *gin.Context) {
+	item, err := h.svc.GetDongengCategory(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": toDongengCategoryResponse(*item)})
+}
+
+func (h *AdminContentHandler) CreateDongengCategory(c *gin.Context) {
+	var input models.DongengCategory
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	item, err := h.svc.CreateDongengCategory(input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": toDongengCategoryResponse(*item)})
+}
+
+func (h *AdminContentHandler) UpdateDongengCategory(c *gin.Context) {
+	var input models.DongengCategory
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	item, err := h.svc.UpdateDongengCategory(c.Param("id"), input)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": toDongengCategoryResponse(*item)})
+}
+
+func (h *AdminContentHandler) DeleteDongengCategory(c *gin.Context) {
+	if err := h.svc.DeleteDongengCategory(c.Param("id")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func (h *AdminContentHandler) ToggleDongengCategoryVisibility(c *gin.Context) {
+	hidden, err := visibilityBody(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.ToggleDongengCategoryVisibility(c.Param("id"), hidden); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"hidden": hidden})
+}

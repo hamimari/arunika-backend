@@ -41,12 +41,16 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	{
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/signup", authHandler.SignUp)
+		auth.GET("/check-availability", authHandler.CheckAvailability)
 		auth.POST("/send-otp", authHandler.SendOtp)
 		auth.POST("/refresh-token", middlewares.JWTAuthMiddleware(rdb), authHandler.RefreshToken)
 		auth.POST("/logout", middlewares.JWTAuthMiddleware(rdb), authHandler.Logout)
 	}
-	r.POST("/forgot-password", authHandler.ForgotPassword)
-	r.POST("/reset-password", authHandler.ResetPassword)
+	r.POST("/forgot-password", middlewares.RateLimitMiddleware(rdb, "forgot-password", 5, 15*time.Minute), authHandler.ForgotPassword)
+	r.POST("/reset-password", middlewares.RateLimitMiddleware(rdb, "reset-password", 10, 15*time.Minute), authHandler.ResetPassword)
+	// Serves the static reset-password page the emailed link opens — same
+	// path as the POST above, different HTTP method, no conflict.
+	r.GET("/reset-password", authHandler.ResetPasswordPage)
 
 	userHandler := handlers.NewUserHandler(reg.UserService)
 	user := r.Group("/user")
@@ -57,20 +61,25 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	}
 
 	arHandler := handlers.NewArHandler(reg.ArService)
-	r.GET("/ar/cards", arHandler.GetAll)
-	r.GET("/ar/cards/:id", middlewares.JWTAuthMiddleware(rdb), arHandler.FindById)
+	r.GET("/ar/cards", middlewares.OptionalAuthMiddleware(rdb), arHandler.GetAll)
+	r.GET("/ar/cards/:id", middlewares.OptionalAuthMiddleware(rdb), arHandler.FindById)
 	r.GET("/ar/categories", arHandler.GetCategories)
 
 	categoryHandler := handlers.NewCategoryHandler(reg.CategoryService)
 	r.GET("/categories", middlewares.JWTAuthMiddleware(rdb), categoryHandler.GetCategories)
 
 	dongengHandler := handlers.NewDongengHandler(reg.DongengService)
-	r.GET("/fairy-tales", dongengHandler.GetFairyTales)
-	r.GET("/fairy-tales/:id", dongengHandler.GetFairyTaleByID)
+	r.GET("/dongeng-categories", dongengHandler.GetCategories)
+	r.GET("/fairy-tales", middlewares.OptionalAuthMiddleware(rdb), dongengHandler.GetFairyTales)
+	r.GET("/fairy-tales/history", middlewares.JWTAuthMiddleware(rdb), dongengHandler.GetHistory)
+	r.GET("/fairy-tales/:id", middlewares.OptionalAuthMiddleware(rdb), dongengHandler.GetFairyTaleByID)
+	r.POST("/fairy-tales/:id/play", middlewares.OptionalAuthMiddleware(rdb), dongengHandler.RecordPlay)
+	r.PUT("/fairy-tales/:id/play", middlewares.JWTAuthMiddleware(rdb), dongengHandler.UpdateProgressHandler)
 
-	// Printable PDF — public (no auth)
-	printableHandler := handlers.NewPrintableCardHandler(db)
-	r.GET("/ar/printable-pdf", printableHandler.GetPrintablePDF)
+	// Printable PDF — accessible to guests, but filtered to what the
+	// requester is entitled to (see PrintableCardHandler.GetPrintablePDF).
+	printableHandler := handlers.NewPrintableCardHandler(db, reg.ProductService, reg.EntitlementService)
+	r.GET("/ar/printable-pdf", middlewares.OptionalAuthMiddleware(rdb), printableHandler.GetPrintablePDF)
 
 	// ── Tracing ──────────────────────────────────────────────────────────────
 	tracingHandler := handlers.NewTracingHandler(reg.TracingService)
@@ -95,17 +104,25 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	r.GET("/badges", middlewares.JWTAuthMiddleware(rdb), badgeHandler.GetBadges)
 
 	// ── Payment ──────────────────────────────────────────────────────────────
-	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService, reg.PremiumPackService, reg.UserService)
+	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService, reg.PremiumPackService, reg.UserService, reg.ProductService)
 	r.POST("/payment/webhook", paymentHandler.Webhook) // no JWT — called by Midtrans
 	payment := r.Group("/payment")
 	payment.Use(middlewares.JWTAuthMiddleware(rdb))
 	{
 		payment.POST("/create", paymentHandler.CreateTransaction)
+		payment.POST("/create-product", paymentHandler.CreateProductTransaction)
 	}
+
+	// ── Orders ───────────────────────────────────────────────────────────────
+	orderHandler := handlers.NewOrderHandler(reg.OrderService, reg.PaymentService)
+	r.GET("/orders/:id", middlewares.JWTAuthMiddleware(rdb), orderHandler.GetByID)
 
 	// ── Premium Packs ─────────────────────────────────────────────────────────
 	premiumPackHandler := handlers.NewPremiumPackHandler(reg.PremiumPackService)
-	r.GET("/premium/packs", premiumPackHandler.GetActivePacks) // public — no auth
+	// Public — no auth required, but OptionalAuthMiddleware attaches a userID
+	// when a valid token is present so already-purchased content packs can be
+	// filtered out of the response.
+	r.GET("/premium/packs", middlewares.OptionalAuthMiddleware(rdb), premiumPackHandler.GetActivePacks)
 
 	// ── Notifications ─────────────────────────────────────────────────────────
 	notifHandler := handlers.NewNotificationHandler(reg.NotificationService)
@@ -134,6 +151,8 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	adminUserHandler := handlers.NewAdminUserHandler(reg.AdminUserService)
 	adminCampaignHandler := handlers.NewAdminCampaignHandler(reg.AdminCampaignService)
 	adminPaymentHandler := handlers.NewAdminPaymentHandler(reg.AdminPaymentService)
+	adminProductHandler := handlers.NewAdminProductHandler(reg.ProductService)
+	adminOrderHandler := handlers.NewAdminOrderHandler(reg.OrderService, reg.PaymentService)
 	bannerHandler := handlers.NewBannerHandler(reg.BannerService)
 
 	// Public banner endpoint for mobile app home screen
@@ -159,6 +178,16 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		// Payments (individual transaction history)
 		admin.GET("/payments", adminPaymentHandler.List)
 		admin.GET("/payments/:id", adminPaymentHandler.Get)
+
+		// Products & Orders
+		admin.GET("/products", adminProductHandler.List)
+		admin.POST("/products", adminProductHandler.Create)
+		admin.GET("/products/:id", adminProductHandler.Get)
+		admin.PUT("/products/:id", adminProductHandler.Update)
+		admin.DELETE("/products/:id", adminProductHandler.Delete)
+		admin.PATCH("/products/:id/active", adminProductHandler.ToggleActive)
+		admin.GET("/orders", adminOrderHandler.List)
+		admin.POST("/orders/:id/sync", adminOrderHandler.Sync)
 
 		// Users
 		admin.GET("/users", adminUserHandler.ListUsers)
@@ -240,12 +269,23 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.DELETE("/content/ar-card-categories/:id", adminContentHandler.DeleteArCardCategory)
 		admin.PATCH("/content/ar-card-categories/:id/visibility", adminContentHandler.ToggleArCardCategoryVisibility)
 
+		// Content — Dongeng Categories
+		admin.GET("/content/dongeng-categories", adminContentHandler.ListDongengCategories)
+		admin.POST("/content/dongeng-categories", adminContentHandler.CreateDongengCategory)
+		admin.GET("/content/dongeng-categories/:id", adminContentHandler.GetDongengCategory)
+		admin.PUT("/content/dongeng-categories/:id", adminContentHandler.UpdateDongengCategory)
+		admin.DELETE("/content/dongeng-categories/:id", adminContentHandler.DeleteDongengCategory)
+		admin.PATCH("/content/dongeng-categories/:id/visibility", adminContentHandler.ToggleDongengCategoryVisibility)
+
 		// Premium Packs
 		admin.GET("/premium/packs", premiumPackHandler.AdminListPacks)
 		admin.POST("/premium/packs", premiumPackHandler.AdminCreatePack)
 		admin.PUT("/premium/packs/:id", premiumPackHandler.AdminUpdatePack)
 		admin.DELETE("/premium/packs/:id", premiumPackHandler.AdminDeletePack)
 		admin.PATCH("/premium/packs/:id/visibility", premiumPackHandler.AdminToggleVisibility)
+		admin.GET("/premium/packs/:id/items", premiumPackHandler.AdminListPackItems)
+		admin.POST("/premium/packs/:id/items", premiumPackHandler.AdminAddPackItem)
+		admin.DELETE("/premium/packs/:id/items/:product_id", premiumPackHandler.AdminRemovePackItem)
 	}
 
 	return r

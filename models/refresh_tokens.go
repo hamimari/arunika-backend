@@ -32,3 +32,10 @@ func DeleteByToken(db *gorm.DB, token string) error {
 	}
 	return nil
 }
+
+// DeleteAllRefreshTokensByUserId revokes every session for a user — used
+// after a password reset so a leaked/compromised refresh token stops
+// working immediately instead of remaining valid for its full lifetime.
+func DeleteAllRefreshTokensByUserId(db *gorm.DB, userId string) error {
+	return db.Where("user_id = ?", userId).Delete(&RefreshToken{}).Error
+}
