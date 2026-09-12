@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import MockAdapter from 'axios-mock-adapter';
 import api from '../../api/client';
-import { fairyTalesApi, bannersApi, arCardsApi } from '../../api/content';
+import { fairyTalesApi, bannersApi, arCardsApi, dongengCategoriesApi } from '../../api/content';
 
 const mock = new MockAdapter(api);
 
@@ -74,5 +74,38 @@ describe('arCardsApi', () => {
     mock.onGet('/admin/content/ar-cards').reply(200, { data: [], total: 0 });
     await arCardsApi.list({});
     expect(mock.history.get[0].url).toBe('/admin/content/ar-cards');
+  });
+});
+
+describe('dongengCategoriesApi', () => {
+  it('list calls GET /admin/content/dongeng-categories', async () => {
+    mock.onGet('/admin/content/dongeng-categories').reply(200, { data: [], total: 0 });
+    await dongengCategoriesApi.list({});
+    expect(mock.history.get[0].url).toBe('/admin/content/dongeng-categories');
+  });
+
+  it('create calls POST /admin/content/dongeng-categories', async () => {
+    mock.onPost('/admin/content/dongeng-categories').reply(201, { data: { id: 'new' } });
+    const res = await dongengCategoriesApi.create({ name: 'Fairy Tales' });
+    expect(res.id).toBe('new');
+  });
+
+  it('update calls PUT /admin/content/dongeng-categories/:id', async () => {
+    mock.onPut('/admin/content/dongeng-categories/123').reply(200, { data: { id: '123', name: 'Islamic' } });
+    const res = await dongengCategoriesApi.update('123', { name: 'Islamic' });
+    expect(res.name).toBe('Islamic');
+  });
+
+  it('delete calls DELETE /admin/content/dongeng-categories/:id', async () => {
+    mock.onDelete('/admin/content/dongeng-categories/123').reply(204);
+    await dongengCategoriesApi.delete('123');
+    expect(mock.history.delete[0].url).toBe('/admin/content/dongeng-categories/123');
+  });
+
+  it('toggleVisibility sends hidden flag', async () => {
+    mock.onPatch('/admin/content/dongeng-categories/123/visibility').reply(200, {});
+    await dongengCategoriesApi.toggleVisibility('123', true);
+    const body = JSON.parse(mock.history.patch[0].data as string);
+    expect(body).toEqual({ hidden: true });
   });
 });

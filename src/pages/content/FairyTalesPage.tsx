@@ -3,7 +3,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import ContentTable from '../../components/ContentTable';
-import { fairyTalesApi, categoriesApi, fairyTalePagesApi } from '../../api/content';
+import { fairyTalesApi, categoriesApi, fairyTalePagesApi, dongengCategoriesApi } from '../../api/content';
 import { useContentPage } from '../../hooks/useContentPage';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -16,10 +16,18 @@ interface FairyTale {
   audio_url: string;
   is_free: boolean;
   category_id: string;
+  dongeng_category_id?: string;
+  dongeng_sub_category_id?: string;
   duration?: number;
   hidden?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
+}
+
+interface DongengCategory {
+  id: string;
+  name: string;
+  parent_id?: string | null;
 }
 
 interface FairyTalePage {
@@ -188,6 +196,22 @@ export default function FairyTalesPage() {
     label: c.name,
   }));
 
+  // Dongeng's own dedicated (hierarchical) category taxonomy — separate from
+  // the generic `categoriesApi`/`category_id` field above.
+  const { data: dongengCategoriesData } = useQuery({
+    queryKey: ['content', 'dongeng-categories', 'all'],
+    queryFn: () => dongengCategoriesApi.list({ page: 1, per_page: 100 }),
+  });
+  const dongengCategories = (dongengCategoriesData?.data ?? []) as DongengCategory[];
+  const dongengCategoryOptions = dongengCategories
+    .filter((c) => !c.parent_id)
+    .map((c) => ({ value: c.id, label: c.name }));
+
+  const selectedDongengCategoryId = Form.useWatch('dongeng_category_id', form);
+  const dongengSubCategoryOptions = dongengCategories
+    .filter((c) => c.parent_id === selectedDongengCategoryId)
+    .map((c) => ({ value: c.id, label: c.name }));
+
   const handleSave = async () => {
     const values = await form.validateFields();
     ctx.onSave(values);
@@ -249,6 +273,23 @@ export default function FairyTalesPage() {
               allowClear
             />
           </Form.Item>
+          <Form.Item name="dongeng_category_id" label="Dongeng Category">
+            <Select
+              options={dongengCategoryOptions}
+              placeholder="Select a dongeng category"
+              allowClear
+              onChange={() => form.setFieldValue('dongeng_sub_category_id', undefined)}
+            />
+          </Form.Item>
+          {dongengSubCategoryOptions.length > 0 && (
+            <Form.Item name="dongeng_sub_category_id" label="Dongeng Sub-category">
+              <Select
+                options={dongengSubCategoryOptions}
+                placeholder="Select a sub-category"
+                allowClear
+              />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </>

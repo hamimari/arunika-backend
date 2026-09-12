@@ -20,6 +20,9 @@ import PaymentsPage from './pages/payments/PaymentsPage';
 import CampaignsPage from './pages/campaigns/CampaignsPage';
 import PremiumPackagesPage from './pages/packages/PremiumPackagesPage';
 import ArCardCategoriesPage from './pages/content/ArCardCategoriesPage';
+import DongengCategoriesPage from './pages/content/DongengCategoriesPage';
+import ProductsPage from './pages/products/ProductsPage';
+import OrdersPage from './pages/orders/OrdersPage';
 
 function AppInit() {
   const initFromStorage = useAuthStore((s) => s.initFromStorage);
@@ -52,12 +55,15 @@ export default function App() {
             <Route path="content/badges" element={<BadgesPage />} />
             <Route path="content/categories" element={<CategoriesPage />} />
             <Route path="content/ar-card-categories" element={<ArCardCategoriesPage />} />
+            <Route path="content/dongeng-categories" element={<DongengCategoriesPage />} />
             <Route path="content/banners" element={<BannersPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />
             <Route path="packages" element={<PremiumPackagesPage />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="orders" element={<OrdersPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

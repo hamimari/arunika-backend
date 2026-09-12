@@ -29,6 +29,8 @@ export const bannersApi = {
 
 export const arCardCategoriesApi = contentApi('ar-card-categories');
 
+export const dongengCategoriesApi = contentApi('dongeng-categories');
+
 export const fairyTalePagesApi = {
   list: (fairyTaleId: string) =>
     api.get('/admin/content/dongen-pages', { params: { dongeng_id: fairyTaleId } }).then((r) => r.data.data as unknown[]),

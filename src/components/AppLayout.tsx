@@ -12,6 +12,8 @@ import {
   TagOutlined,
   AppstoreOutlined,
   GiftOutlined,
+  ShoppingOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
@@ -33,6 +35,7 @@ const menuItems = [
       { key: '/content/badges', icon: <TagOutlined />, label: 'Badges' },
       { key: '/content/categories', icon: <AppstoreOutlined />, label: 'Categories' },
       { key: '/content/ar-card-categories', icon: <AppstoreOutlined />, label: 'AR Card Categories' },
+      { key: '/content/dongeng-categories', icon: <AppstoreOutlined />, label: 'Dongeng Categories' },
       { key: '/content/banners', icon: <PictureOutlined />, label: 'Banners' },
     ],
   },
@@ -40,6 +43,8 @@ const menuItems = [
   { key: '/payments', icon: <CreditCardOutlined />, label: 'Payments' },
   { key: '/campaigns', icon: <NotificationOutlined />, label: 'Campaigns' },
   { key: '/packages', icon: <GiftOutlined />, label: 'Premium Packages' },
+  { key: '/products', icon: <ShoppingOutlined />, label: 'Products' },
+  { key: '/orders', icon: <FileTextOutlined />, label: 'Orders' },
 ];
 
 export default function AppLayout() {
