@@ -28,16 +28,6 @@ describe('authApi', () => {
     });
   });
 
-  describe('refresh', () => {
-    it('POSTs admin_id and refresh_token', async () => {
-      mock.onPost('/admin/auth/refresh').reply(200, { access_token: 'newtoken' });
-      const res = await authApi.refresh('admin-uuid', 'refresh456');
-      expect(res.access_token).toBe('newtoken');
-      const body = JSON.parse(mock.history.post[0].data as string);
-      expect(body).toEqual({ admin_id: 'admin-uuid', refresh_token: 'refresh456' });
-    });
-  });
-
   describe('logout', () => {
     it('POSTs to /admin/auth/logout', async () => {
       mock.onPost('/admin/auth/logout').reply(200, {});

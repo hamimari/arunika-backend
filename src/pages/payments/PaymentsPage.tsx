@@ -11,6 +11,7 @@ const { Text } = Typography;
 interface PaymentTransaction {
   id: string;
   order_id: string;
+  provider_order_id: string;
   user_id: string | null;
   transaction_id: string;
   transaction_status: string;
@@ -68,8 +69,8 @@ export default function PaymentsPage() {
   const columns: ColumnsType<PaymentTransaction> = [
     {
       title: 'Order ID',
-      dataIndex: 'order_id',
-      key: 'order_id',
+      dataIndex: 'provider_order_id',
+      key: 'provider_order_id',
       ellipsis: true,
       width: 220,
     },
@@ -218,7 +219,8 @@ export default function PaymentsPage() {
       >
         {selectedItem && (
           <Space direction="vertical" style={{ width: '100%' }} size="small">
-            <div><Text strong>Order ID:</Text> <Text copyable>{selectedItem.order_id}</Text></div>
+            <div><Text strong>Order ID:</Text> <Text copyable>{selectedItem.provider_order_id}</Text></div>
+            <div><Text strong>Internal Order:</Text> <Text copyable>{selectedItem.order_id}</Text></div>
             <div><Text strong>Transaction ID:</Text> <Text copyable>{selectedItem.transaction_id || '-'}</Text></div>
             <div>
               <Text strong>Status: </Text>
