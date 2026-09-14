@@ -25,12 +25,29 @@ services:
     image: redis:7-alpine
     container_name: arunika_redis
     restart: unless-stopped
-    command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD:-}
-      --appendonly yes
+    # `--requirepass ${REDIS_PASSWORD:-}` used to collapse to
+    # `--requirepass --appendonly yes` when REDIS_PASSWORD is unset (the
+    # empty substitution just vanishes, merging the two flags) — redis-server
+    # then reads "--appendonly" as the password value and fails to parse
+    # "yes" as a second argument. Only pass --requirepass when a password is
+    # actually configured.
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes
+        else
+          exec redis-server --appendonly yes
+        fi
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      # Host-side port only (for local redis-cli access) — the app container
+      # always talks to this over the internal compose network as
+      # "redis:6379" regardless of what's published here. Mapped to 6380 on
+      # the host because another, unrelated Redis container already owns the
+      # host's 6379.
+      - "${REDIS_HOST_PORT:-6380}:6379"
     volumes:
       - redisdata:/data
     healthcheck:

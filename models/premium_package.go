@@ -7,17 +7,20 @@ import (
 )
 
 type PremiumPackage struct {
-	ID          string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
-	Name        string    `gorm:"type:varchar(100);not null"                     json:"name"`
-	Subtitle    string    `gorm:"type:varchar(255);not null"                     json:"subtitle"`
-	PriceIdr    int       `gorm:"not null" json:"price_idr"`
-	Type        string    `gorm:"type:varchar(20);not null"                      json:"type"`
-	BadgeLabel  *string   `gorm:"type:varchar(50)"                               json:"badge_label"`
-	IsBestValue bool      `gorm:"not null;default:false"                         json:"is_best_value"`
-	IsActive    bool      `gorm:"not null;default:true"                          json:"is_active"`
-	SortOrder   int       `gorm:"not null;default:0"                             json:"sort_order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string  `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
+	Name        string  `gorm:"type:varchar(100);not null"                     json:"name"`
+	Subtitle    string  `gorm:"type:varchar(255);not null"                     json:"subtitle"`
+	PriceIdr    int     `gorm:"not null" json:"price_idr"`
+	Type        string  `gorm:"type:varchar(20);not null"                      json:"type"`
+	BadgeLabel  *string `gorm:"type:varchar(50)"                               json:"badge_label"`
+	IsBestValue bool    `gorm:"not null;default:false"                         json:"is_best_value"`
+	IsActive    bool    `gorm:"not null;default:true"                          json:"is_active"`
+	SortOrder   int     `gorm:"not null;default:0"                             json:"sort_order"`
+	// DurationDays is required when Type == "subscription" (enforced by a DB
+	// CHECK constraint) and NULL for Type == "content".
+	DurationDays *int      `gorm:"column:duration_days" json:"duration_days"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 func (PremiumPackage) TableName() string {
@@ -25,12 +28,15 @@ func (PremiumPackage) TableName() string {
 }
 
 // FindActivePremiumPackages returns all active packages ordered by sort_order.
-// The packType parameter is intentionally ignored — the public endpoint always
-// returns every active pack (both subscription and content) so the Flutter app
-// can determine banner visibility based on the full active set.
+// When packType is empty, no type filter is applied and packages of every type
+// are returned; otherwise results are restricted to that type.
 func FindActivePremiumPackages(db *gorm.DB, packType string) ([]PremiumPackage, error) {
 	var packs []PremiumPackage
-	result := db.Where("is_active = ? and type = ?", true, packType).Order("sort_order asc").Find(&packs)
+	query := db.Where("is_active = true")
+	if packType != "" {
+		query = query.Where("type = ?", packType)
+	}
+	result := query.Order("sort_order asc").Find(&packs)
 	return packs, result.Error
 }
 

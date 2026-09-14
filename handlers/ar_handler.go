@@ -17,7 +17,7 @@ func NewArHandler(s *services.ArService) *ArHandler {
 
 func (h *ArHandler) FindById(c *gin.Context) {
 	id := c.Param("id")
-	content, err := h.service.GetByID(id)
+	content, err := h.service.GetByID(id, optionalUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -32,7 +32,7 @@ func (h *ArHandler) FindById(c *gin.Context) {
 func (h *ArHandler) GetAll(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	subCategoryID := c.Query("sub_category_id")
-	cards, err := h.service.GetAll(categoryID, subCategoryID)
+	cards, err := h.service.GetAll(categoryID, subCategoryID, optionalUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

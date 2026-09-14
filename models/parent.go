@@ -25,6 +25,15 @@ func FindUserByEmail(db *gorm.DB, email string) (*Parent, error) {
 	return &user, nil
 }
 
+func FindUserByPhoneNumber(db *gorm.DB, phone string) (*Parent, error) {
+	var user Parent
+	result := db.Where("phone_number = ?", phone).First(&user)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
 func CheckPassword(storedHash, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
 	return err == nil

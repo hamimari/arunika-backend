@@ -6,14 +6,17 @@ import (
 )
 
 type Animal struct {
-	ID         string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
-	Name       string    `gorm:"type:varchar(255);not null"                     json:"name"`
-	Emoji      string    `gorm:"type:varchar(20);not null;default:''"           json:"emoji"`
-	Category   string    `gorm:"type:varchar(50);not null;default:'hutan'"      json:"category"`
-	ImageURL   string    `gorm:"type:text;not null;default:''"                  json:"image_url"`
-	BgColor    string    `gorm:"type:varchar(20);not null;default:'#FFF3E0'"    json:"bg_color"`
-	Fact       string    `gorm:"type:text;not null;default:''"                  json:"fact"`
-	IsUnlocked bool      `gorm:"not null;default:false"                         json:"is_unlocked"`
+	ID       string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
+	Name     string `gorm:"type:varchar(255);not null"                     json:"name"`
+	Emoji    string `gorm:"type:varchar(20);not null;default:''"           json:"emoji"`
+	Category string `gorm:"type:varchar(50);not null;default:'hutan'"      json:"category"`
+	ImageURL string `gorm:"type:text;not null;default:''"                  json:"image_url"`
+	BgColor  string `gorm:"type:varchar(20);not null;default:'#FFF3E0'"    json:"bg_color"`
+	Fact     string `gorm:"type:text;not null;default:''"                  json:"fact"`
+	// IsUnlocked is not a DB column — animals has no products/entitlements
+	// mapping (see design.md); GET /animals is also unrouted today, so this
+	// always reads as false. Kept only so the JSON shape is unchanged.
+	IsUnlocked bool      `gorm:"-" json:"is_unlocked"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	IsDeleted  bool      `gorm:"not null;default:false"                         json:"is_deleted"`

@@ -21,7 +21,7 @@ func NewPremiumPackHandler(s *services.PremiumPackService) *PremiumPackHandler {
 // Optional ?type=content|subscription query param.
 func (h *PremiumPackHandler) GetActivePacks(c *gin.Context) {
 	packType := c.Query("type")
-	packs, err := h.service.GetActivePacks(packType)
+	packs, err := h.service.GetActivePacks(packType, optionalUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve packages"})
 		return
@@ -84,6 +84,43 @@ func (h *PremiumPackHandler) AdminDeletePack(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete package"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// AdminListPackItems handles GET /admin/premium/packs/:id/items (admin JWT required)
+func (h *PremiumPackHandler) AdminListPackItems(c *gin.Context) {
+	items, err := h.service.ListItems(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+type AddPackItemRequest struct {
+	ProductID string `json:"product_id" binding:"required"`
+}
+
+// AdminAddPackItem handles POST /admin/premium/packs/:id/items (admin JWT required)
+func (h *PremiumPackHandler) AdminAddPackItem(c *gin.Context) {
+	var req AddPackItemRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.service.AddItem(c.Param("id"), req.ProductID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusCreated)
+}
+
+// AdminRemovePackItem handles DELETE /admin/premium/packs/:id/items/:product_id (admin JWT required)
+func (h *PremiumPackHandler) AdminRemovePackItem(c *gin.Context) {
+	if err := h.service.RemoveItem(c.Param("id"), c.Param("product_id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	c.Status(http.StatusNoContent)

@@ -70,24 +70,32 @@ func (s *AdminUserService) GrantPremium(userID string, durationDays int) error {
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return result.Error
 		}
-		// No subscription record — create one.
+		// No subscription record — create one. Manual grants have no
+		// purchase behind them, so package_id stays NULL; start_date is set
+		// to now so the grant has a consistent start like a purchased one.
+		now := time.Now()
 		sub = models.UserSubscription{
-			UserID: uid,
-			Status: "premium",
+			UserID:    uid,
+			Status:    "premium",
+			PackageID: nil,
+			StartDate: &now,
 		}
 		if durationDays > 0 {
-			expiry := time.Now().Add(time.Duration(durationDays) * 24 * time.Hour)
+			expiry := now.Add(time.Duration(durationDays) * 24 * time.Hour)
 			sub.ExpiresAt = &expiry
 		}
 		return s.db.Create(&sub).Error
 	}
 
+	now := time.Now()
 	updates := map[string]interface{}{
 		"status":     "premium",
-		"updated_at": time.Now(),
+		"updated_at": now,
+		"package_id": nil,
+		"start_date": now,
 	}
 	if durationDays > 0 {
-		expiry := time.Now().Add(time.Duration(durationDays) * 24 * time.Hour)
+		expiry := now.Add(time.Duration(durationDays) * 24 * time.Hour)
 		updates["expires_at"] = expiry
 	}
 	return s.db.Model(&sub).Updates(updates).Error

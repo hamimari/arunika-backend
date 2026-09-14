@@ -15,12 +15,18 @@ type ArCards struct {
 	ShortCode string `gorm:"uniqueIndex;type:text"      json:"short_code"`
 	Hidden    bool   `gorm:"column:hidden;default:false" json:"hidden"`
 	// Legacy free-text fields (kept for backward compat, prefer CategoryID/SubCategoryID)
-	Category     string `gorm:"type:varchar(50)"           json:"category"`
-	SubCategory  string `gorm:"column:sub_category;type:varchar(50)" json:"sub_category"`
-	ImageURL     string `gorm:"column:image_url;type:text" json:"image_url"`
-	Emoji        string `gorm:"type:varchar(20)"           json:"emoji"`
-	BgColor      string `gorm:"column:bg_color;type:varchar(20);default:'#FFF3E0'" json:"bg_color"`
-	IsUnlocked   bool   `gorm:"column:is_unlocked;default:false" json:"is_unlocked"`
+	Category    string `gorm:"type:varchar(50)"           json:"category"`
+	SubCategory string `gorm:"column:sub_category;type:varchar(50)" json:"sub_category"`
+	ImageURL    string `gorm:"column:image_url;type:text" json:"image_url"`
+	Emoji       string `gorm:"type:varchar(20)"           json:"emoji"`
+	BgColor     string `gorm:"column:bg_color;type:varchar(20);default:'#FFF3E0'" json:"bg_color"`
+	// IsUnlocked, ProductID and PriceIdr are not DB columns — they're computed
+	// per-request by ArService from products/user_entitlements/user_subscriptions
+	// (see ArService.applyUnlocked). ProductID/PriceIdr are only set when the
+	// card has a linked (purchasable) product; nil means free content.
+	IsUnlocked   bool       `gorm:"-" json:"is_unlocked"`
+	ProductID    *uuid.UUID `gorm:"-" json:"product_id,omitempty"`
+	PriceIdr     *int64     `gorm:"-" json:"price_idr,omitempty"`
 	Description  string `gorm:"type:text"                  json:"description"`
 	PrintableImg string `gorm:"column:printable_img;type:text;default:''" json:"printable_img"`
 	// Structured category FKs (from V12 migration)

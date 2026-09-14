@@ -19,14 +19,16 @@ VALUES
 
 insert into ar_cards (id, title, type, file_url, short_code, created_at)
 values
-    ('830d1532-e51a-41c7-8f2f-b841883e5e1c', 'Truck', '3D', '/ar/cards/830d1532-e51a-41c7-8f2f-b841883e5e1c', '', now());
+    ('830d1532-e51a-41c7-8f2f-b841883e5e1c', 'Truck', '3D', '/ar/cards/830d1532-e51a-41c7-8f2f-b841883e5e1c', '', now())
+ON CONFLICT (id) DO NOTHING;
 
 insert into categories(id, name, image_url, created_at, updated_at, is_deleted)
 values
     ('4d1bd9b0-c147-40ef-ada3-4fe0b051d149', 'Numbers', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', now(), now(), false),
     ('6c532f32-058b-4f88-8389-bc8f738dcecb', 'Shapes', 'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', now(), now(), false),
     ('9335ff4b-5080-430f-be3e-7935375d2ae1', 'Vocab', 'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', now(), now(), false),
-    ('87cb06d3-48ef-49fb-8c5e-661fd55e1ba7', 'Dongeng', 'https://storage.googleapis.com/a1aa/image/hrtjK7BpRwCPJeq8wKrawJrq6dYsWJFSGknFf-ZeKxk.jpg', now(), now(), false);
+    ('87cb06d3-48ef-49fb-8c5e-661fd55e1ba7', 'Dongeng', 'https://storage.googleapis.com/a1aa/image/hrtjK7BpRwCPJeq8wKrawJrq6dYsWJFSGknFf-ZeKxk.jpg', now(), now(), false)
+ON CONFLICT (id) DO NOTHING;
 
 
 INSERT INTO dongengs (id, title, age_start, age_ent, age_end, image_url, is_free, category_id)
@@ -68,18 +70,18 @@ VALUES
 ON CONFLICT (dongeng_id, page_number) DO NOTHING;
 
 -- Animal seed data
-INSERT INTO animals (id, name, emoji, category, image_url, bg_color, fact, is_unlocked)
+INSERT INTO animals (id, name, emoji, category, image_url, bg_color, fact)
 VALUES
-    ('00000000-0000-0000-0001-000000000001', 'Sapi',    '🐄', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#FFF8E1', 'Sapi bisa menghasilkan hingga 200.000 gelas susu dalam hidupnya.', true),
-    ('00000000-0000-0000-0001-000000000002', 'Kambing', '🐐', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#F3E5F5', 'Kambing memiliki pupil persegi panjang yang membantu mereka melihat 320 derajat.', true),
-    ('00000000-0000-0000-0001-000000000003', 'Ayam',    '🐔', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#FFF3E0', 'Ayam adalah hewan peliharaan paling banyak di dunia, lebih banyak dari manusia.', true),
-    ('00000000-0000-0000-0001-000000000004', 'Bebek',   '🦆', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#E3F2FD', 'Bebek bisa tidur dengan satu mata terbuka untuk waspada terhadap predator.', false),
-    ('00000000-0000-0000-0002-000000000001', 'Harimau', '🐯', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#FFF3E0', 'Harimau adalah kucing terbesar di dunia dan perenang yang handal.', true),
-    ('00000000-0000-0000-0002-000000000002', 'Gajah',   '🐘', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#ECEFF1', 'Gajah adalah satu-satunya hewan yang tidak bisa melompat.', true),
-    ('00000000-0000-0000-0002-000000000003', 'Rusa',    '🦌', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#E8F5E9', 'Tanduk rusa adalah jaringan tulang yang tumbuh paling cepat di dunia.', true),
-    ('00000000-0000-0000-0002-000000000004', 'Monyet',  '🐒', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#FFF9C4', 'Monyet memiliki sidik jari yang unik, sama seperti manusia.', false),
-    ('00000000-0000-0000-0003-000000000001', 'Ikan',    '🐟', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#E3F2FD', 'Beberapa ikan bisa mengubah jenis kelaminnya sepanjang hidupnya.', true),
-    ('00000000-0000-0000-0003-000000000002', 'Lumba-lumba', '🐬', 'laut', 'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#B2EBF2', 'Lumba-lumba tidur dengan setengah otaknya tetap terjaga.', true),
-    ('00000000-0000-0000-0003-000000000003', 'Penyu',   '🐢', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#E8F5E9', 'Penyu laut bisa hidup lebih dari 100 tahun.', false),
-    ('00000000-0000-0000-0003-000000000004', 'Gurita',  '🐙', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#F3E5F5', 'Gurita memiliki tiga jantung dan darah berwarna biru.', false)
+    ('00000000-0000-0000-0001-000000000001', 'Sapi',    '🐄', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#FFF8E1', 'Sapi bisa menghasilkan hingga 200.000 gelas susu dalam hidupnya.'),
+    ('00000000-0000-0000-0001-000000000002', 'Kambing', '🐐', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#F3E5F5', 'Kambing memiliki pupil persegi panjang yang membantu mereka melihat 320 derajat.'),
+    ('00000000-0000-0000-0001-000000000003', 'Ayam',    '🐔', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#FFF3E0', 'Ayam adalah hewan peliharaan paling banyak di dunia, lebih banyak dari manusia.'),
+    ('00000000-0000-0000-0001-000000000004', 'Bebek',   '🦆', 'ternak', 'https://storage.googleapis.com/a1aa/image/KTco9PlO4VnxwpIOmykV40oSaTChaGPp_g0n39XWZDs.jpg', '#E3F2FD', 'Bebek bisa tidur dengan satu mata terbuka untuk waspada terhadap predator.'),
+    ('00000000-0000-0000-0002-000000000001', 'Harimau', '🐯', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#FFF3E0', 'Harimau adalah kucing terbesar di dunia dan perenang yang handal.'),
+    ('00000000-0000-0000-0002-000000000002', 'Gajah',   '🐘', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#ECEFF1', 'Gajah adalah satu-satunya hewan yang tidak bisa melompat.'),
+    ('00000000-0000-0000-0002-000000000003', 'Rusa',    '🦌', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#E8F5E9', 'Tanduk rusa adalah jaringan tulang yang tumbuh paling cepat di dunia.'),
+    ('00000000-0000-0000-0002-000000000004', 'Monyet',  '🐒', 'hutan',  'https://storage.googleapis.com/a1aa/image/qSzsuL39YBR5CfR01URSfbRouZ7Q_2tImmwg-1eoKkI.jpg', '#FFF9C4', 'Monyet memiliki sidik jari yang unik, sama seperti manusia.'),
+    ('00000000-0000-0000-0003-000000000001', 'Ikan',    '🐟', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#E3F2FD', 'Beberapa ikan bisa mengubah jenis kelaminnya sepanjang hidupnya.'),
+    ('00000000-0000-0000-0003-000000000002', 'Lumba-lumba', '🐬', 'laut', 'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#B2EBF2', 'Lumba-lumba tidur dengan setengah otaknya tetap terjaga.'),
+    ('00000000-0000-0000-0003-000000000003', 'Penyu',   '🐢', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#E8F5E9', 'Penyu laut bisa hidup lebih dari 100 tahun.'),
+    ('00000000-0000-0000-0003-000000000004', 'Gurita',  '🐙', 'laut',   'https://storage.googleapis.com/a1aa/image/Vt4DLo0qLYSGDuRSmGEizcrwpaywqfa5vjg5z55fQ5c.jpg', '#F3E5F5', 'Gurita memiliki tiga jantung dan darah berwarna biru.')
 ON CONFLICT (id) DO NOTHING;

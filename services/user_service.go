@@ -3,6 +3,7 @@ package services
 import (
 	"arunika_backend/models"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,17 +18,35 @@ func NewUserService(db *gorm.DB) *UserService {
 	return &UserService{db: db}
 }
 
-func (s *UserService) GetUserByID(id string) (*models.Parent, string, error) {
+// SubscriptionDetail is the client-facing view of a user's active
+// subscription — plan name (resolved from premium_packages, falling back to
+// a generic label for admin manual-grants that have no package_id), status,
+// and days remaining so the profile screen can show "N hari lagi" and a
+// pay/extend CTA.
+type SubscriptionDetail struct {
+	PlanName  string     `json:"plan_name"`
+	Status    string     `json:"status"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	DaysLeft  *int       `json:"days_left,omitempty"`
+}
+
+func (s *UserService) GetUserByID(id string) (*models.Parent, string, *SubscriptionDetail, error) {
 	var user models.Parent
 	if err := s.db.Preload("Children").First(&user, "id = ?", id).Error; err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
-	// Fetch subscription status; default to "free" if not found
+	// Fetch subscription status; default to "free" if not found or expired.
+	// A lapsed subscription must not keep reporting "premium" — this is
+	// consulted by the client to decide whether to show the premium upsell.
 	var sub models.UserSubscription
 	status := "free"
+	var detail *SubscriptionDetail
 	if err := s.db.Where("user_id = ?", id).First(&sub).Error; err == nil {
-		status = sub.Status
+		if sub.Status == "premium" && (sub.ExpiresAt == nil || sub.ExpiresAt.After(time.Now())) {
+			status = "premium"
+			detail = s.buildSubscriptionDetail(&sub)
+		}
 	}
 
 	// Ensure Children is never nil so JSON serialises as [] not null
@@ -35,7 +54,31 @@ func (s *UserService) GetUserByID(id string) (*models.Parent, string, error) {
 		user.Children = []models.Children{}
 	}
 
-	return &user, status, nil
+	return &user, status, detail, nil
+}
+
+func (s *UserService) buildSubscriptionDetail(sub *models.UserSubscription) *SubscriptionDetail {
+	planName := "Langganan Premium"
+	if sub.PackageID != nil {
+		var pkg models.PremiumPackage
+		if err := s.db.Select("name").Where("id = ?", sub.PackageID.String()).First(&pkg).Error; err == nil && pkg.Name != "" {
+			planName = pkg.Name
+		}
+	}
+
+	detail := &SubscriptionDetail{
+		PlanName:  planName,
+		Status:    sub.Status,
+		ExpiresAt: sub.ExpiresAt,
+	}
+	if sub.ExpiresAt != nil {
+		days := int(math.Ceil(time.Until(*sub.ExpiresAt).Hours() / 24))
+		if days < 0 {
+			days = 0
+		}
+		detail.DaysLeft = &days
+	}
+	return detail
 }
 
 func (s *UserService) UpdateUser(req *models.Parent) (*models.Parent, error) {

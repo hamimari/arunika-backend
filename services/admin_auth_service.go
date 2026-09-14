@@ -24,16 +24,22 @@ func NewAdminAuthService(db *gorm.DB, redis *redis.Client) *AdminAuthService {
 	return &AdminAuthService{db: db, redis: redis}
 }
 
-// Login validates credentials and returns (accessToken, refreshToken, error).
-func (s *AdminAuthService) Login(email, password string) (string, string, error) {
+// Login validates credentials and returns (accessToken, refreshToken, adminID, error).
+// adminID is returned to the client so it can later authenticate a refresh
+// call — RefreshToken validates the stored token against this same id.
+func (s *AdminAuthService) Login(email, password string) (string, string, string, error) {
 	admin, err := models.FindAdminByEmail(s.db, email)
 	if err != nil {
-		return "", "", errors.New("invalid credentials")
+		return "", "", "", errors.New("invalid credentials")
 	}
 	if !models.CheckAdminPassword(admin.PasswordHash, password) {
-		return "", "", errors.New("invalid credentials")
+		return "", "", "", errors.New("invalid credentials")
 	}
-	return s.generateTokens(admin.ID.String(), admin.Email)
+	accessToken, refreshToken, err := s.generateTokens(admin.ID.String(), admin.Email)
+	if err != nil {
+		return "", "", "", err
+	}
+	return accessToken, refreshToken, admin.ID.String(), nil
 }
 
 // RefreshToken validates an admin refresh token and issues a new access token.

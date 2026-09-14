@@ -26,7 +26,7 @@ func (h *AdminAuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	accessToken, refreshToken, err := h.svc.Login(req.Email, req.Password)
+	accessToken, refreshToken, adminID, err := h.svc.Login(req.Email, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -34,6 +34,7 @@ func (h *AdminAuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
+		"admin_id":      adminID,
 	})
 }
 

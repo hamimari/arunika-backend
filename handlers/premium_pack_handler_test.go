@@ -39,7 +39,7 @@ func premiumPackColumns() []string {
 
 func TestGetActivePacks_ReturnsOnlyActive(t *testing.T) {
 	gormDB, mock := setupPremiumPackDB(t)
-	svc := services.NewPremiumPackService(gormDB)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
 	h := NewPremiumPackHandler(svc)
 
 	now := time.Now()
@@ -61,18 +61,18 @@ func TestGetActivePacks_ReturnsOnlyActive(t *testing.T) {
 	assert.Len(t, data, 1)
 }
 
-func TestGetActivePacks_TypeParamIgnored(t *testing.T) {
+func TestGetActivePacks_TypeParamFilters(t *testing.T) {
 	gormDB, mock := setupPremiumPackDB(t)
-	svc := services.NewPremiumPackService(gormDB)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
 	h := NewPremiumPackHandler(svc)
 
 	now := time.Now()
-	// Both types are returned — type query param is intentionally ignored.
+	// Only the subscription row is returned — type query param now filters.
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow("id-5", "Bulanan", "Akses 1 bulan", 39000, "subscription", nil, false, true, 1, now, now).
-		AddRow("id-1", "Paket Hutan", "8 Hewan Hutan", 29000, "content", nil, false, true, 2, now, now)
+		AddRow("id-5", "Bulanan", "Akses 1 bulan", 39000, "subscription", nil, false, true, 1, now, now)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE is_active = true ORDER BY sort_order asc`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE is_active = true AND type = $1 ORDER BY sort_order asc`)).
+		WithArgs("subscription").
 		WillReturnRows(rows)
 
 	w := httptest.NewRecorder()
@@ -86,14 +86,14 @@ func TestGetActivePacks_TypeParamIgnored(t *testing.T) {
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	data := resp["data"].([]interface{})
-	assert.Len(t, data, 2)
+	assert.Len(t, data, 1)
 }
 
 // ─── Admin: GET /admin/premium/packs ─────────────────────────────────────────
 
 func TestAdminListPacks_ReturnsAll(t *testing.T) {
 	gormDB, mock := setupPremiumPackDB(t)
-	svc := services.NewPremiumPackService(gormDB)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
 	h := NewPremiumPackHandler(svc)
 
 	now := time.Now()
@@ -120,7 +120,7 @@ func TestAdminListPacks_ReturnsAll(t *testing.T) {
 
 func TestAdminCreatePack_Success(t *testing.T) {
 	gormDB, mock := setupPremiumPackDB(t)
-	svc := services.NewPremiumPackService(gormDB)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
 	h := NewPremiumPackHandler(svc)
 
 	now := time.Now()
@@ -139,9 +139,89 @@ func TestAdminCreatePack_Success(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
+// ─── Admin: Package Items ─────────────────────────────────────────────────────
+
+func TestAdminListPackItems_Success(t *testing.T) {
+	gormDB, mock := setupPremiumPackDB(t)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
+	h := NewPremiumPackHandler(svc)
+
+	packageID := "11111111-1111-1111-1111-111111111111"
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_package_items" WHERE package_id = $1`)).
+		WillReturnRows(sqlmock.NewRows([]string{"package_id", "product_id", "created_at"}).
+			AddRow(packageID, "22222222-2222-2222-2222-222222222222", now))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/admin/premium/packs/"+packageID+"/items", nil)
+	c.Params = gin.Params{{Key: "id", Value: packageID}}
+	h.AdminListPackItems(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAdminAddPackItem_Success(t *testing.T) {
+	gormDB, mock := setupPremiumPackDB(t)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
+	h := NewPremiumPackHandler(svc)
+
+	packageID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "premium_package_items"`)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	body := `{"product_id":"22222222-2222-2222-2222-222222222222"}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/admin/premium/packs/"+packageID+"/items", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: packageID}}
+	h.AdminAddPackItem(c)
+
+	assert.Equal(t, http.StatusCreated, c.Writer.Status())
+}
+
+func TestAdminAddPackItem_InvalidBody(t *testing.T) {
+	gormDB, _ := setupPremiumPackDB(t)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
+	h := NewPremiumPackHandler(svc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/admin/premium/packs/id-1/items", bytes.NewBufferString(`{}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: "id-1"}}
+	h.AdminAddPackItem(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestAdminRemovePackItem_Success(t *testing.T) {
+	gormDB, mock := setupPremiumPackDB(t)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
+	h := NewPremiumPackHandler(svc)
+
+	packageID := "11111111-1111-1111-1111-111111111111"
+	productID := "22222222-2222-2222-2222-222222222222"
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "premium_package_items" WHERE package_id = $1 AND product_id = $2`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodDelete, "/admin/premium/packs/"+packageID+"/items/"+productID, nil)
+	c.Params = gin.Params{{Key: "id", Value: packageID}, {Key: "product_id", Value: productID}}
+	h.AdminRemovePackItem(c)
+
+	assert.Equal(t, http.StatusNoContent, c.Writer.Status())
+}
+
 func TestAdminCreatePack_InvalidBody(t *testing.T) {
 	gormDB, _ := setupPremiumPackDB(t)
-	svc := services.NewPremiumPackService(gormDB)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
 	h := NewPremiumPackHandler(svc)
 
 	body := `{"name":""}` // missing required fields

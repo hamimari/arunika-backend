@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"arunika_backend/models"
+	"arunika_backend/services"
 	"bytes"
 	"context"
 	"fmt"
@@ -17,15 +18,19 @@ import (
 )
 
 type PrintableCardHandler struct {
-	db *gorm.DB
+	db                 *gorm.DB
+	productService     *services.ProductService
+	entitlementService *services.EntitlementService
 }
 
-func NewPrintableCardHandler(db *gorm.DB) *PrintableCardHandler {
-	return &PrintableCardHandler{db: db}
+func NewPrintableCardHandler(db *gorm.DB, productService *services.ProductService, entitlementService *services.EntitlementService) *PrintableCardHandler {
+	return &PrintableCardHandler{db: db, productService: productService, entitlementService: entitlementService}
 }
 
-// GetPrintablePDF generates an A4 PDF with AR card images for all cards in a category.
-// Cards are laid out 2 columns × 2 rows per page, each cell 75×110 mm with 2 mm gutters.
+// GetPrintablePDF generates an A4 PDF with AR card images for all cards in a
+// category that the requester is entitled to (free cards, plus any paid
+// cards they've bought or unlocked via subscription). Cards are laid out 2
+// columns × 2 rows per page, each cell 75×110 mm with 2 mm gutters.
 func (h *PrintableCardHandler) GetPrintablePDF(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	if categoryID == "" {
@@ -33,13 +38,42 @@ func (h *PrintableCardHandler) GetPrintablePDF(c *gin.Context) {
 		return
 	}
 
-	cards, err := models.FindAllCards(h.db, categoryID, "")
+	allCards, err := models.FindAllCards(h.db, categoryID, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if len(cards) == 0 {
+	if len(allCards) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no cards found for this category"})
+		return
+	}
+
+	userID := optionalUserID(c)
+	cards := make([]models.ArCards, 0, len(allCards))
+	for _, card := range allCards {
+		product, err := h.productService.ResolveByArCardID(card.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if product == nil {
+			cards = append(cards, card) // free card — always accessible
+			continue
+		}
+		if userID == nil {
+			continue
+		}
+		hasAccess, err := h.entitlementService.HasAccess(*userID, product.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if hasAccess {
+			cards = append(cards, card)
+		}
+	}
+	if len(cards) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no_entitlement", "message": "Anda belum memiliki akses ke kategori ini"})
 		return
 	}
 

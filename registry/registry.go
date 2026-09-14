@@ -27,10 +27,16 @@ type ServiceRegistry struct {
 	NotificationService   *services.NotificationService
 	GrowthService         *services.GrowthService
 	PremiumPackService    *services.PremiumPackService
+	ProductService        *services.ProductService
+	EntitlementService    *services.EntitlementService
+	OrderService          *services.OrderService
 }
 
 func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 	notificationSvc := services.NewNotificationService(db)
+	entitlementSvc := services.NewEntitlementService(db)
+	productSvc := services.NewProductService(db)
+	orderSvc := services.NewOrderService(db, productSvc)
 	return &ServiceRegistry{
 		DB:                    db,
 		AuthService:           services.NewAuthService(db, redis),
@@ -42,15 +48,18 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		AdminPaymentService:   services.NewAdminPaymentService(db),
 		BannerService:         services.NewBannerService(db),
 		UserService:           services.NewUserService(db),
-		ArService:             services.NewArService(db),
+		ArService:             services.NewArService(db, productSvc, entitlementSvc),
 		CategoryService:       services.NewCategoryService(db),
-		DongengService:        services.NewDongengService(db),
+		DongengService:        services.NewDongengService(db, productSvc, entitlementSvc),
 		TracingService:        services.NewTracingService(db),
 		CountingService:       services.NewCountingService(db),
 		BadgeService:          services.NewBadgeService(db),
-		PaymentService:        services.NewPaymentService(db),
+		PaymentService:        services.NewPaymentService(db, entitlementSvc),
 		NotificationService:   notificationSvc,
 		GrowthService:         services.NewGrowthService(db),
-		PremiumPackService:    services.NewPremiumPackService(db),
+		PremiumPackService:    services.NewPremiumPackService(db, orderSvc),
+		ProductService:        productSvc,
+		EntitlementService:    entitlementSvc,
+		OrderService:          orderSvc,
 	}
 }

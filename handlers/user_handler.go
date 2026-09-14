@@ -33,6 +33,16 @@ type UserHandler struct {
 	service *services.UserService
 }
 
+// userResponse nests is_subscribed and subscription alongside the Parent
+// fields the Flutter app's UserResponse.fromJson already expects them in
+// (json["data"]), derived from the same expiry-aware subscription status
+// GetUserByID computes.
+type userResponse struct {
+	*models.Parent
+	IsSubscribed bool                         `json:"is_subscribed"`
+	Subscription *services.SubscriptionDetail `json:"subscription,omitempty"`
+}
+
 func NewUserHandler(s *services.UserService) *UserHandler {
 	return &UserHandler{service: s}
 }
@@ -46,14 +56,18 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	user, subscriptionStatus, err := h.service.GetUserByID(id)
+	user, subscriptionStatus, subscription, err := h.service.GetUserByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":                user,
+		"data": userResponse{
+			Parent:       user,
+			IsSubscribed: subscriptionStatus == "premium",
+			Subscription: subscription,
+		},
 		"subscription_status": subscriptionStatus,
 	})
 }
@@ -107,13 +121,17 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	// Re-fetch via GetUserByID to include subscription status
-	user, subscriptionStatus, err := h.service.GetUserByID(updated.ID.String())
+	user, subscriptionStatus, subscription, err := h.service.GetUserByID(updated.ID.String())
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"data": updated})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"data":                user,
+		"data": userResponse{
+			Parent:       user,
+			IsSubscribed: subscriptionStatus == "premium",
+			Subscription: subscription,
+		},
 		"subscription_status": subscriptionStatus,
 	})
 }
