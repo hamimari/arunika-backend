@@ -14,7 +14,7 @@ import (
 
 func premiumPackColumns() []string {
 	return []string{
-		"id", "name", "subtitle", "price_idr", "type",
+		"id", "name", "subtitle", "description", "image_url", "price_idr", "type",
 		"badge_label", "is_best_value", "is_active", "sort_order",
 		"created_at", "updated_at",
 	}
@@ -30,7 +30,7 @@ func TestPremiumPackService_GetAllPacks_Success(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow(id1, "Basic", "Akses konten dasar", 49000, "content",
+		AddRow(id1, "Basic", "Akses konten dasar", nil, nil, 49000, "content",
 			nil, false, true, 1, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
@@ -70,7 +70,7 @@ func TestPremiumPackService_GetActivePacks_Success(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow(id1, "Premium", "Akses penuh", 99000, "subscription",
+		AddRow(id1, "Premium", "Akses penuh", nil, nil, 99000, "subscription",
 			nil, true, true, 0, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
@@ -111,9 +111,9 @@ func TestPremiumPackService_GetActivePacks_ExcludesPurchasedContentPacks(t *test
 	now := time.Now()
 
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow(boughtID, "Paket Hutan", "sudah dibeli", 29000, "content", nil, false, true, 1, now, now).
-		AddRow(unboughtID, "Paket Laut", "belum dibeli", 29000, "content", nil, false, true, 2, now, now).
-		AddRow(subID, "Bulanan", "langganan", 39000, "subscription", nil, false, true, 3, now, now)
+		AddRow(boughtID, "Paket Hutan", "sudah dibeli", nil, nil, 29000, "content", nil, false, true, 1, now, now).
+		AddRow(unboughtID, "Paket Laut", "belum dibeli", nil, nil, 29000, "content", nil, false, true, 2, now, now).
+		AddRow(subID, "Bulanan", "langganan", nil, nil, 39000, "subscription", nil, false, true, 3, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
 		`SELECT * FROM "premium_packages" WHERE is_active = true ORDER BY sort_order asc`,
@@ -140,7 +140,7 @@ func TestPremiumPackService_GetActivePacks_PurchasedLookupError(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow(uuid.New().String(), "Paket Hutan", "x", 29000, "content", nil, false, true, 1, now, now)
+		AddRow(uuid.New().String(), "Paket Hutan", "x", nil, nil, 29000, "content", nil, false, true, 1, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
 		`SELECT * FROM "premium_packages" WHERE is_active = true ORDER BY sort_order asc`,
@@ -186,6 +186,32 @@ func TestPremiumPackService_CreatePack_SubscriptionMissingDuration_Error(t *test
 
 	assert.Error(t, err)
 	assert.Nil(t, pack)
+}
+
+func TestPremiumPackService_CreatePack_PersistsDescriptionAndImageURL(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := NewPremiumPackService(gormDB, NewOrderService(gormDB, NewProductService(gormDB)))
+
+	description := "Paket lengkap untuk anak usia dini"
+	imageURL := "https://example.com/paket-hutan.jpg"
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "premium_packages"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("new-id", now, now))
+	mock.ExpectCommit()
+
+	pack, err := svc.CreatePack(CreatePremiumPackInput{
+		Name: "Paket Hutan", Subtitle: "8 Hewan Hutan",
+		Description: &description, ImageURL: &imageURL,
+		PriceIdr: 29000, Type: "content",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, pack.Description)
+	require.NotNil(t, pack.ImageURL)
+	assert.Equal(t, description, *pack.Description)
+	assert.Equal(t, imageURL, *pack.ImageURL)
 }
 
 func TestPremiumPackService_UpdatePack_SubscriptionMissingDuration_Error(t *testing.T) {

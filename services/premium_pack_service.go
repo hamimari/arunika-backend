@@ -54,6 +54,8 @@ func (s *PremiumPackService) GetAllPacks() ([]models.PremiumPackage, error) {
 type CreatePremiumPackInput struct {
 	Name         string  `json:"name"          binding:"required"`
 	Subtitle     string  `json:"subtitle"      binding:"required"`
+	Description  *string `json:"description"`
+	ImageURL     *string `json:"image_url"`
 	PriceIdr     int     `json:"price_idr" binding:"required,min=1"`
 	Type         string  `json:"type"          binding:"required,oneof=content subscription"`
 	BadgeLabel   *string `json:"badge_label"`
@@ -82,6 +84,8 @@ func (s *PremiumPackService) CreatePack(input CreatePremiumPackInput) (*models.P
 	pack := models.PremiumPackage{
 		Name:         input.Name,
 		Subtitle:     input.Subtitle,
+		Description:  input.Description,
+		ImageURL:     input.ImageURL,
 		PriceIdr:     input.PriceIdr,
 		Type:         input.Type,
 		BadgeLabel:   input.BadgeLabel,
@@ -97,6 +101,8 @@ func (s *PremiumPackService) CreatePack(input CreatePremiumPackInput) (*models.P
 type UpdatePremiumPackInput struct {
 	Name         string  `json:"name"          binding:"required"`
 	Subtitle     string  `json:"subtitle"      binding:"required"`
+	Description  *string `json:"description"`
+	ImageURL     *string `json:"image_url"`
 	PriceIDR     int     `json:"price_idr"     binding:"required,min=1"`
 	Type         string  `json:"type"          binding:"required,oneof=content subscription"`
 	BadgeLabel   *string `json:"badge_label"`
@@ -116,6 +122,8 @@ func (s *PremiumPackService) UpdatePack(id string, input UpdatePremiumPackInput)
 	}
 	pack.Name = input.Name
 	pack.Subtitle = input.Subtitle
+	pack.Description = input.Description
+	pack.ImageURL = input.ImageURL
 	pack.PriceIdr = input.PriceIDR
 	pack.Type = input.Type
 	pack.BadgeLabel = input.BadgeLabel

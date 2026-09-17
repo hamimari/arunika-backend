@@ -10,6 +10,8 @@ type PremiumPackage struct {
 	ID          string  `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
 	Name        string  `gorm:"type:varchar(100);not null"                     json:"name"`
 	Subtitle    string  `gorm:"type:varchar(255);not null"                     json:"subtitle"`
+	Description *string `gorm:"type:text"                                      json:"description"`
+	ImageURL    *string `gorm:"column:image_url;type:text"                     json:"image_url"`
 	PriceIdr    int     `gorm:"not null" json:"price_idr"`
 	Type        string  `gorm:"type:varchar(20);not null"                      json:"type"`
 	BadgeLabel  *string `gorm:"type:varchar(50)"                               json:"badge_label"`

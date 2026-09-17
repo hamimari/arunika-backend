@@ -31,7 +31,7 @@ func TestEntitlementService_GrantForPaidOrder_ContentPackage_FanOut(t *testing.T
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id = $1 ORDER BY "premium_packages"."id" LIMIT $2`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows(premiumPackColumns()).
-			AddRow(packageID, "Paket Hutan", "8 hewan", 29000, "content", nil, false, true, 1, now, now))
+			AddRow(packageID, "Paket Hutan", "8 hewan", nil, nil, 29000, "content", nil, false, true, 1, now, now))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_package_items" WHERE package_id = $1`)).
 		WithArgs(packageID).
@@ -69,7 +69,7 @@ func TestEntitlementService_GrantForPaidOrder_ContentPackage_IdempotentReGrant(t
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id = $1 ORDER BY "premium_packages"."id" LIMIT $2`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows(premiumPackColumns()).
-			AddRow(packageID, "Paket Hutan", "8 hewan", 29000, "content", nil, false, true, 1, now, now))
+			AddRow(packageID, "Paket Hutan", "8 hewan", nil, nil, 29000, "content", nil, false, true, 1, now, now))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_package_items" WHERE package_id = $1`)).
 		WithArgs(packageID).
@@ -105,10 +105,10 @@ func TestEntitlementService_GrantForPaidOrder_SubscriptionPackage_NewSubscriptio
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id = $1 ORDER BY "premium_packages"."id" LIMIT $2`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "subtitle", "price_idr", "type",
+			"id", "name", "subtitle", "description", "image_url", "price_idr", "type",
 			"badge_label", "is_best_value", "is_active", "sort_order", "duration_days",
 			"created_at", "updated_at",
-		}).AddRow(packageID, "Bulanan", "1 bulan", 39000, "subscription", nil, false, true, 1, duration, now, now))
+		}).AddRow(packageID, "Bulanan", "1 bulan", nil, nil, 39000, "subscription", nil, false, true, 1, duration, now, now))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "user_subscriptions" WHERE user_id = $1 ORDER BY "user_subscriptions"."id" LIMIT $2`)).
 		WithArgs(userID, 1).
@@ -163,10 +163,10 @@ func TestEntitlementService_GrantForPaidOrder_SubscriptionPackage_ExtendsActiveS
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id = $1 ORDER BY "premium_packages"."id" LIMIT $2`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "subtitle", "price_idr", "type",
+			"id", "name", "subtitle", "description", "image_url", "price_idr", "type",
 			"badge_label", "is_best_value", "is_active", "sort_order", "duration_days",
 			"created_at", "updated_at",
-		}).AddRow(packageID, "Bulanan", "1 bulan", 39000, "subscription", nil, false, true, 1, duration, now, now))
+		}).AddRow(packageID, "Bulanan", "1 bulan", nil, nil, 39000, "subscription", nil, false, true, 1, duration, now, now))
 
 	// Already has an active subscription with 10 days left.
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "user_subscriptions" WHERE user_id = $1 ORDER BY "user_subscriptions"."id" LIMIT $2`)).

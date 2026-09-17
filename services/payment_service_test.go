@@ -235,7 +235,7 @@ func TestPaymentService_HandleWebhook_HappyPath_ContentPackage(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id = $1`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows(premiumPackColumns()).
-			AddRow(packageID, "Paket Hutan", "8 hewan", 29000, "content", nil, false, true, 1, now, now))
+			AddRow(packageID, "Paket Hutan", "8 hewan", nil, nil, 29000, "content", nil, false, true, 1, now, now))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_package_items" WHERE package_id = $1`)).
 		WithArgs(packageID).
@@ -355,7 +355,7 @@ func TestPaymentService_SyncOrderStatus_Settled_TransitionsOrder(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id = $1`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows(premiumPackColumns()).
-			AddRow(packageID, "Paket Hutan", "8 hewan", 29000, "content", nil, false, true, 1, now, now))
+			AddRow(packageID, "Paket Hutan", "8 hewan", nil, nil, 29000, "content", nil, false, true, 1, now, now))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_package_items" WHERE package_id = $1`)).
 		WithArgs(packageID).

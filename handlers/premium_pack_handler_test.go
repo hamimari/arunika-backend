@@ -32,7 +32,7 @@ func setupPremiumPackDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
 }
 
 func premiumPackColumns() []string {
-	return []string{"id", "name", "subtitle", "price_idr", "type", "badge_label", "is_best_value", "is_active", "sort_order", "created_at", "updated_at"}
+	return []string{"id", "name", "subtitle", "description", "image_url", "price_idr", "type", "badge_label", "is_best_value", "is_active", "sort_order", "created_at", "updated_at"}
 }
 
 // ─── Public: GET /premium/packs ───────────────────────────────────────────────
@@ -44,7 +44,7 @@ func TestGetActivePacks_ReturnsOnlyActive(t *testing.T) {
 
 	now := time.Now()
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow("id-1", "Paket Hutan", "8 Hewan Hutan", 29000, "content", nil, false, true, 1, now, now)
+		AddRow("id-1", "Paket Hutan", "8 Hewan Hutan", nil, nil, 29000, "content", nil, false, true, 1, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE is_active = true ORDER BY sort_order asc`)).
 		WillReturnRows(rows)
@@ -69,7 +69,7 @@ func TestGetActivePacks_TypeParamFilters(t *testing.T) {
 	now := time.Now()
 	// Only the subscription row is returned — type query param now filters.
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow("id-5", "Bulanan", "Akses 1 bulan", 39000, "subscription", nil, false, true, 1, now, now)
+		AddRow("id-5", "Bulanan", "Akses 1 bulan", nil, nil, 39000, "subscription", nil, false, true, 1, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE is_active = true AND type = $1 ORDER BY sort_order asc`)).
 		WithArgs("subscription").
@@ -98,8 +98,8 @@ func TestAdminListPacks_ReturnsAll(t *testing.T) {
 
 	now := time.Now()
 	rows := sqlmock.NewRows(premiumPackColumns()).
-		AddRow("id-1", "Paket Hutan", "8 Hewan Hutan", 29000, "content", nil, false, true, 1, now, now).
-		AddRow("id-2", "Paket Tersembunyi", "Hidden", 0, "content", nil, false, false, 9, now, now)
+		AddRow("id-1", "Paket Hutan", "8 Hewan Hutan", nil, nil, 29000, "content", nil, false, true, 1, now, now).
+		AddRow("id-2", "Paket Tersembunyi", "Hidden", nil, nil, 0, "content", nil, false, false, 9, now, now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" ORDER BY sort_order asc`)).
 		WillReturnRows(rows)
@@ -137,6 +137,32 @@ func TestAdminCreatePack_Success(t *testing.T) {
 	h.AdminCreatePack(c)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestAdminCreatePack_WithDescriptionAndImage_Success(t *testing.T) {
+	gormDB, mock := setupPremiumPackDB(t)
+	svc := services.NewPremiumPackService(gormDB, services.NewOrderService(gormDB, services.NewProductService(gormDB)))
+	h := NewPremiumPackHandler(svc)
+
+	now := time.Now()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "premium_packages"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("new-id", now, now))
+	mock.ExpectCommit()
+
+	body := `{"name":"Test Pack","subtitle":"Test Sub","description":"Deskripsi lengkap","image_url":"https://example.com/pack.jpg","price_idr":10000,"type":"content"}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/admin/premium/packs", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	h.AdminCreatePack(c)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]interface{})
+	assert.Equal(t, "Deskripsi lengkap", data["description"])
+	assert.Equal(t, "https://example.com/pack.jpg", data["image_url"])
 }
 
 // ─── Admin: Package Items ─────────────────────────────────────────────────────

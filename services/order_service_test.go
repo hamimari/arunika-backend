@@ -18,7 +18,7 @@ func parentCols() []string {
 }
 
 func premiumPackageCols() []string {
-	return []string{"id", "name", "subtitle", "price_idr", "type", "badge_label", "is_best_value", "is_active", "sort_order", "duration_days", "created_at", "updated_at"}
+	return []string{"id", "name", "subtitle", "description", "image_url", "price_idr", "type", "badge_label", "is_best_value", "is_active", "sort_order", "duration_days", "created_at", "updated_at"}
 }
 
 func TestOrderService_List_Success(t *testing.T) {
@@ -97,7 +97,7 @@ func TestOrderService_List_WithSearch(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id IN ($1)`)).
 		WithArgs(packageID.String()).
 		WillReturnRows(sqlmock.NewRows(premiumPackageCols()).
-			AddRow(packageID.String(), "Paket Hutan", "sub", 49000, "content", nil, false, true, 0, nil, now, now))
+			AddRow(packageID.String(), "Paket Hutan", "sub", nil, nil, 49000, "content", nil, false, true, 0, nil, now, now))
 
 	items, total, err := svc.List("", "budi", 1, 20)
 
