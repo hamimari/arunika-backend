@@ -14,13 +14,56 @@ export const paymentsApi = {
   get: (id: string) => api.get(`/admin/payments/${id}`).then((r) => r.data.data),
 };
 
+export type CampaignChannel = 'push' | 'email' | 'both';
+export type CampaignSegment = 'all_devices' | 'all' | 'subscribers';
+export type CampaignLinkType = 'none' | 'ar_card' | 'dongeng';
+
+export interface CampaignInput {
+  title: string;
+  body: string;
+  channel: CampaignChannel;
+  segment: CampaignSegment;
+  image_url?: string;
+  link_type: CampaignLinkType;
+  link_id?: string;
+}
+
+export interface Campaign {
+  id: string;
+  title: string;
+  body: string;
+  image_url: string;
+  channel: CampaignChannel;
+  segment: CampaignSegment;
+  link_type: CampaignLinkType;
+  link_id: string;
+  status: 'SENDING' | 'COMPLETED' | 'FAILED';
+  sent: number;
+  failed: number;
+  error: string;
+  created_at: string;
+  completed_at?: string;
+}
+
 export const campaignsApi = {
-  dispatch: (payload: {
-    title: string;
-    body: string;
-    channel: string;
-    segment: string;
-  }) => api.post('/admin/campaigns', payload).then((r) => r.data.data),
+  dispatch: (payload: CampaignInput): Promise<Campaign> =>
+    api.post('/admin/campaigns', payload).then((r) => r.data.data),
+  list: (params: { page?: number; per_page?: number }): Promise<{ data: Campaign[]; total: number }> =>
+    api.get('/admin/campaigns', { params }).then((r) => r.data),
+};
+
+export interface FeatureFlag {
+  key: string;
+  name: string;
+  description: string;
+  is_enabled: boolean;
+  updated_at: string;
+}
+
+export const featureFlagsApi = {
+  list: (): Promise<{ data: FeatureFlag[] }> => api.get('/admin/feature-flags').then((r) => r.data),
+  toggle: (key: string, isEnabled: boolean): Promise<{ data: FeatureFlag }> =>
+    api.patch(`/admin/feature-flags/${key}`, { is_enabled: isEnabled }).then((r) => r.data),
 };
 
 export interface PremiumPackage {

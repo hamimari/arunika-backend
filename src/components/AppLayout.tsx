@@ -14,6 +14,7 @@ import {
   GiftOutlined,
   ShoppingOutlined,
   FileTextOutlined,
+  ControlOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
@@ -45,6 +46,7 @@ const menuItems = [
   { key: '/packages', icon: <GiftOutlined />, label: 'Premium Packages' },
   { key: '/products', icon: <ShoppingOutlined />, label: 'Products' },
   { key: '/orders', icon: <FileTextOutlined />, label: 'Orders' },
+  { key: '/feature-flags', icon: <ControlOutlined />, label: 'App Features' },
 ];
 
 export default function AppLayout() {

@@ -90,11 +90,25 @@ describe('paymentsApi', () => {
 
 describe('campaignsApi', () => {
   it('POSTs to /admin/campaigns with correct shape', async () => {
-    mock.onPost('/admin/campaigns').reply(200, { data: { sent: 100 } });
-    const payload = { title: 'Promo', body: 'Msg', channel: 'push', segment: 'all' };
-    await campaignsApi.dispatch(payload);
+    mock.onPost('/admin/campaigns').reply(202, { data: { id: 'c-1', status: 'SENDING' } });
+    const payload = {
+      title: 'Promo',
+      body: 'Msg',
+      channel: 'push' as const,
+      segment: 'all' as const,
+      link_type: 'dongeng' as const,
+      link_id: 'dongeng-1',
+    };
+    const res = await campaignsApi.dispatch(payload);
     const body = JSON.parse(mock.history.post[0].data as string);
     expect(body).toMatchObject(payload);
+    expect(res.status).toBe('SENDING');
+  });
+
+  it('list calls GET /admin/campaigns with paging', async () => {
+    mock.onGet('/admin/campaigns').reply(200, { data: [], total: 0 });
+    await campaignsApi.list({ page: 2, per_page: 10 });
+    expect(mock.history.get[0].params).toEqual({ page: 2, per_page: 10 });
   });
 });
 

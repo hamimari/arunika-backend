@@ -23,6 +23,7 @@ import ArCardCategoriesPage from './pages/content/ArCardCategoriesPage';
 import DongengCategoriesPage from './pages/content/DongengCategoriesPage';
 import ProductsPage from './pages/products/ProductsPage';
 import OrdersPage from './pages/orders/OrdersPage';
+import FeatureFlagsPage from './pages/settings/FeatureFlagsPage';
 
 function AppInit() {
   const initFromStorage = useAuthStore((s) => s.initFromStorage);
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="packages" element={<PremiumPackagesPage />} />
             <Route path="products" element={<ProductsPage />} />
             <Route path="orders" element={<OrdersPage />} />
+            <Route path="feature-flags" element={<FeatureFlagsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

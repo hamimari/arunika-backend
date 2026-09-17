@@ -19,6 +19,7 @@ const tableColumns: ColumnsType<ArCard> = [
   { title: 'Title', dataIndex: 'title', key: 'title' },
   { title: 'Type', dataIndex: 'type', key: 'type' },
   { title: 'Short Code', dataIndex: 'short_code', key: 'short_code' },
+  { title: 'Description', dataIndex: 'description', key: 'description', ellipsis: true },
 ];
 
 export default function ArCardsPage() {
@@ -73,6 +74,9 @@ export default function ArCardsPage() {
           </Form.Item>
           <Form.Item name="short_code" label="Short Code">
             <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <Input.TextArea rows={3} placeholder="Shown on the card detail screen in the app" showCount />
           </Form.Item>
           <Form.Item name="image_url" label="Image URL">
             <Input />

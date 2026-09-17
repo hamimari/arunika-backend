@@ -214,6 +214,10 @@ export default function FairyTalesPage() {
 
   const handleSave = async () => {
     const values = await form.validateFields();
+    // Category columns are nullable UUIDs: send null for "no category", never ''.
+    for (const key of ['category_id', 'dongeng_category_id', 'dongeng_sub_category_id']) {
+      if (!values[key]) values[key] = null;
+    }
     ctx.onSave(values);
   };
 
