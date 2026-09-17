@@ -245,6 +245,15 @@ export default function PremiumPackagesPage() {
           <Form.Item name="subtitle" label="Subtitle" rules={[{ required: true, message: 'Subtitle is required' }]}>
             <Input placeholder="e.g. Belajar tentang hutan" />
           </Form.Item>
+          <Form.Item name="description" label="Description">
+            <Input.TextArea
+              rows={3}
+              placeholder="Shown on the landing page's product cards"
+            />
+          </Form.Item>
+          <Form.Item name="image_url" label="Image URL">
+            <Input placeholder="https://... (sample image for the landing page)" />
+          </Form.Item>
           <Form.Item
             name="price_idr"
             label="Price (IDR)"

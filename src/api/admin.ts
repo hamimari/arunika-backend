@@ -70,6 +70,8 @@ export interface PremiumPackage {
   id: string;
   name: string;
   subtitle: string;
+  description: string | null;
+  image_url: string | null;
   price_idr: number;
   type: 'content' | 'subscription';
   badge_label: string;
