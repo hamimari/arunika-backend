@@ -13,9 +13,12 @@ type RefreshToken struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-func FindUserUserIdAndToken(db *gorm.DB, userId string, token string) (*RefreshToken, error) {
+// FindRefreshToken looks a refresh token up by its value alone. Refreshing a
+// session presents only this token — the access token it was issued with has
+// usually expired by then — so the user it belongs to comes from the row.
+func FindRefreshToken(db *gorm.DB, token string) (*RefreshToken, error) {
 	var refreshToken RefreshToken
-	result := db.Where("token = ? and user_id = ?", token, userId).First(&refreshToken)
+	result := db.Where("token = ?", token).First(&refreshToken)
 	if result.Error != nil {
 		return nil, result.Error
 	}

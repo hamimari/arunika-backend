@@ -63,7 +63,7 @@ func FindDongengHistory(db *gorm.DB, userID uuid.UUID, limit int) ([]DongengHist
 	var rows []DongengHistoryRow
 	err := db.Table("dongeng_play_history h").
 		Select("h.dongeng_id, h.progress_seconds, d.duration AS total_seconds, h.started_at").
-		Joins("JOIN dongengs d ON d.id = h.dongeng_id AND d.is_deleted = false").
+		Joins("JOIN dongengs d ON d.id = h.dongeng_id AND d.is_deleted = false AND d.hidden = false").
 		Where("h.user_id = ?", userID).
 		Order("h.updated_at DESC").
 		Limit(limit).

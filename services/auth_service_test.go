@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"net/http/httptest"
 	"os"
 	"regexp"
@@ -16,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"arunika_backend/models"
 	"arunika_backend/utils"
@@ -96,56 +99,165 @@ func TestValidateCredentials_UserNotFound(t *testing.T) {
 	assert.Nil(t, user)
 }
 
-// TestValidateRefreshToken_Valid tests that a valid, non-expired refresh token is accepted.
-func TestValidateRefreshToken_Valid(t *testing.T) {
+// refreshTokenRows builds the stored refresh token row a lookup returns.
+func refreshTokenRows(tokenID uuid.UUID, userID, token string, expiresAt time.Time) *sqlmock.Rows {
+	now := time.Now()
+	return sqlmock.NewRows([]string{
+		"id", "user_id", "token", "expires_at", "created_at", "updated_at", "is_deleted",
+	}).AddRow(tokenID, userID, token, expiresAt, now, now, false)
+}
+
+const refreshTokenLookupSQL = `SELECT * FROM "refresh_tokens" WHERE token = $1 ORDER BY "refresh_tokens"."id" LIMIT $2`
+
+// TestRefreshSession_Valid covers the everyday case: the app comes back after
+// its 15-minute access token expired and trades the refresh token for a new
+// pair, without ever presenting an access token.
+func TestRefreshSession_Valid(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	svc := NewAuthService(gormDB, nil)
 
-	userID := uuid.New().String()
+	os.Setenv("JWT_SECRET", "test-secret-key-at-least-32-chars!!")
+	defer os.Unsetenv("JWT_SECRET")
+
+	userID := uuid.New()
 	tokenVal := uuid.New().String()
-	tokenID := uuid.New()
-	now := time.Now()
-	expiresAt := now.Add(7 * 24 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{
-		"id", "user_id", "token", "expires_at", "created_at", "updated_at", "is_deleted",
-	}).AddRow(tokenID, userID, tokenVal, expiresAt, now, now, false)
+	mock.ExpectQuery(regexp.QuoteMeta(refreshTokenLookupSQL)).
+		WithArgs(tokenVal, 1).
+		WillReturnRows(refreshTokenRows(uuid.New(), userID.String(), tokenVal, time.Now().Add(24*time.Hour)))
 
-	// FindUserUserIdAndToken: WHERE token = $1 and user_id = $2 ... LIMIT $3
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "refresh_tokens" WHERE token = $1 and user_id = $2 ORDER BY "refresh_tokens"."id" LIMIT $3`)).
-		WithArgs(tokenVal, userID, 1).
-		WillReturnRows(rows)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE id = $1`)).
+		WithArgs(userID.String(), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email_address"}).AddRow(userID, "user@example.com"))
 
-	resultUserID, err := svc.ValidateRefreshToken(userID, tokenVal)
+	// New token stored first, old one deleted only afterwards.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "refresh_tokens"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "refresh_tokens" WHERE token = $1`)).
+		WithArgs(tokenVal).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	accessToken, newRefreshToken, err := svc.RefreshSession(tokenVal)
 
 	require.NoError(t, err)
-	assert.Equal(t, userID, resultUserID)
+	assert.NotEmpty(t, accessToken)
+	assert.NotEmpty(t, newRefreshToken)
+	assert.NotEqual(t, tokenVal, newRefreshToken, "refresh token should be rotated")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestValidateRefreshToken_Expired tests that an expired refresh token is rejected.
-func TestValidateRefreshToken_Expired(t *testing.T) {
+// TestRefreshSession_SlidingExpiry pins the behaviour the feature exists for:
+// each refresh pushes the expiry a full week out from now (not from the old
+// token's expiry), so a user who opens the app regularly is never signed out.
+func TestRefreshSession_SlidingExpiry(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := NewAuthService(gormDB, nil)
+
+	os.Setenv("JWT_SECRET", "test-secret-key-at-least-32-chars!!")
+	defer os.Unsetenv("JWT_SECRET")
+
+	userID := uuid.New()
+	tokenVal := uuid.New().String()
+	// Almost lapsed: one hour of the original week left.
+	nearlyExpired := time.Now().Add(time.Hour)
+
+	mock.ExpectQuery(regexp.QuoteMeta(refreshTokenLookupSQL)).
+		WithArgs(tokenVal, 1).
+		WillReturnRows(refreshTokenRows(uuid.New(), userID.String(), tokenVal, nearlyExpired))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE id = $1`)).
+		WithArgs(userID.String(), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email_address"}).AddRow(userID, "user@example.com"))
+
+	// minExpiry only matches an expires_at recomputed from "now" — extending
+	// the stale nearlyExpired value by the same window would fall short of it.
+	minExpiry := nearlyExpired.Add(6 * 24 * time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "refresh_tokens"`)).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), userID.String(), sqlmock.AnyArg(), afterArg{minExpiry}).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "refresh_tokens" WHERE token = $1`)).
+		WithArgs(tokenVal).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	_, _, err := svc.RefreshSession(tokenVal)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// afterArg is a sqlmock.Argument matcher: it matches any time.Time strictly
+// after the wrapped bound.
+type afterArg struct{ bound time.Time }
+
+func (a afterArg) Match(v driver.Value) bool {
+	t, ok := v.(time.Time)
+	return ok && t.After(a.bound)
+}
+
+// TestRefreshSession_Expired tests that a session unused past its window is
+// over, and the lapsed row is cleaned up.
+func TestRefreshSession_Expired(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	svc := NewAuthService(gormDB, nil)
 
 	userID := uuid.New().String()
 	tokenVal := uuid.New().String()
-	tokenID := uuid.New()
-	now := time.Now()
-	expiredAt := now.Add(-1 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{
-		"id", "user_id", "token", "expires_at", "created_at", "updated_at", "is_deleted",
-	}).AddRow(tokenID, userID, tokenVal, expiredAt, now, now, false)
+	mock.ExpectQuery(regexp.QuoteMeta(refreshTokenLookupSQL)).
+		WithArgs(tokenVal, 1).
+		WillReturnRows(refreshTokenRows(uuid.New(), userID, tokenVal, time.Now().Add(-time.Hour)))
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "refresh_tokens" WHERE token = $1 and user_id = $2 ORDER BY "refresh_tokens"."id" LIMIT $3`)).
-		WithArgs(tokenVal, userID, 1).
-		WillReturnRows(rows)
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "refresh_tokens" WHERE token = $1`)).
+		WithArgs(tokenVal).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
-	_, err := svc.ValidateRefreshToken(userID, tokenVal)
+	_, _, err := svc.RefreshSession(tokenVal)
+
+	assert.ErrorIs(t, err, ErrRefreshTokenInvalid)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestRefreshSession_UnknownToken tests that an unknown (e.g. already
+// rotated) token is rejected as a dead session rather than a server error.
+func TestRefreshSession_UnknownToken(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := NewAuthService(gormDB, nil)
+
+	tokenVal := uuid.New().String()
+	mock.ExpectQuery(regexp.QuoteMeta(refreshTokenLookupSQL)).
+		WithArgs(tokenVal, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	_, _, err := svc.RefreshSession(tokenVal)
+
+	assert.ErrorIs(t, err, ErrRefreshTokenInvalid)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestRefreshSession_DBError tests that a database outage is NOT reported as
+// an invalid session — otherwise every user would be signed out during one.
+func TestRefreshSession_DBError(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := NewAuthService(gormDB, nil)
+
+	tokenVal := uuid.New().String()
+	mock.ExpectQuery(regexp.QuoteMeta(refreshTokenLookupSQL)).
+		WithArgs(tokenVal, 1).
+		WillReturnError(sql.ErrConnDone)
+
+	_, _, err := svc.RefreshSession(tokenVal)
 
 	assert.Error(t, err)
-	assert.Equal(t, "token expired", err.Error())
+	assert.NotErrorIs(t, err, ErrRefreshTokenInvalid)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -383,19 +495,19 @@ func TestCheckAvailability_EmptyInputsSkipped(t *testing.T) {
 
 // ─── ForgotPassword / ResetPassword ────────────────────────────────────────────
 
-// Points SendEmail at a closed local port so it fails fast (connection
+// Points SendGenericEmail at a closed local port so it fails fast (connection
 // refused) instead of trying a real SMTP server or hanging.
 func useUnreachableSMTP(t *testing.T) {
 	t.Helper()
 	os.Setenv("SMTP_HOST", "127.0.0.1")
 	os.Setenv("SMTP_PORT", "1")
 	os.Setenv("SMTP_USER", "test@example.com")
-	os.Setenv("SMTP_PASSWORD", "unused")
+	os.Setenv("SMTP_PASS", "unused")
 	t.Cleanup(func() {
 		os.Unsetenv("SMTP_HOST")
 		os.Unsetenv("SMTP_PORT")
 		os.Unsetenv("SMTP_USER")
-		os.Unsetenv("SMTP_PASSWORD")
+		os.Unsetenv("SMTP_PASS")
 	})
 }
 

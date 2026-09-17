@@ -28,8 +28,8 @@ func TestArService_GetByID_Success_FreeContent(t *testing.T) {
 		"id", "type", "title", "file_url", "sound_url", "short_code", "created_at", "expires_at",
 	}).AddRow(id, "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs(id, 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs(id, false, 1).
 		WillReturnRows(rows)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).
@@ -60,8 +60,8 @@ func TestArService_GetByID_PaidContent_Unauthenticated_Locked(t *testing.T) {
 		"id", "type", "title", "file_url", "sound_url", "short_code", "created_at", "expires_at",
 	}).AddRow(id, "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs(id, 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs(id, false, 1).
 		WillReturnRows(rows)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).
@@ -98,8 +98,8 @@ func TestArService_GetByID_InactiveProduct_NoEntitlement_Hidden(t *testing.T) {
 		"id", "type", "title", "file_url", "sound_url", "short_code", "created_at", "expires_at",
 	}).AddRow(id, "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs(id, 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs(id, false, 1).
 		WillReturnRows(rows)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).
@@ -142,8 +142,8 @@ func TestArService_GetByID_InactiveProduct_ExistingOwner_StillUnlocked(t *testin
 		"id", "type", "title", "file_url", "sound_url", "short_code", "created_at", "expires_at",
 	}).AddRow(id, "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs(id, 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs(id, false, 1).
 		WillReturnRows(rows)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).
@@ -177,8 +177,8 @@ func TestArService_GetByID_NotFound(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	svc := newArService(gormDB)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs("missing-id", 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs("missing-id", false, 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 
 	result, err := svc.GetByID("missing-id", nil)
@@ -192,8 +192,8 @@ func TestArService_GetByID_DBError(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	svc := newArService(gormDB)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs("any-id", 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs("any-id", false, 1).
 		WillReturnError(sql.ErrConnDone)
 
 	result, err := svc.GetByID("any-id", nil)

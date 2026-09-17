@@ -221,6 +221,7 @@ All variables are required unless marked optional.
 | `SMTP_PORT` | SMTP server port | `587` |
 | `SMTP_USER` | SMTP sender address | `no-reply@example.com` |
 | `SMTP_PASS` | SMTP password | `changeme` |
+| `SMTP_EMAIL` | From address on outgoing mail (optional, defaults to `SMTP_USER`) | `no-reply@example.com` |
 | `APP_DOMAIN` | Public URL of the application | `https://app.example.com` |
 | `PORT` | HTTP port the server listens on (optional) | `8080` |
 | `MIDTRANS_SERVER_KEY` | Midtrans server key | `SB-Mid-server-…` |

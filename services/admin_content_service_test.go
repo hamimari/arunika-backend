@@ -736,8 +736,8 @@ func TestAdminContentService_ListDongengCategories_Success(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectQuery(`SELECT \* FROM "dongeng_categories" ORDER BY sort_order ASC, created_at DESC`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "emoji", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
-			AddRow(id, "Fairy Tales", "🧚", "", nil, 0, now, now, false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
+			AddRow(id, "Fairy Tales", "", nil, 0, now, now, false))
 
 	items, err := svc.ListDongengCategories()
 	require.NoError(t, err)
@@ -754,8 +754,8 @@ func TestAdminContentService_GetDongengCategory_Success(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "dongeng_categories" WHERE id = $1 AND is_deleted = false`)).
 		WithArgs(id.String(), 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "emoji", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
-			AddRow(id, "Islamic", "🕌", "", nil, 1, now, now, false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
+			AddRow(id, "Islamic", "", nil, 1, now, now, false))
 
 	item, err := svc.GetDongengCategory(id.String())
 	require.NoError(t, err)
@@ -767,8 +767,8 @@ func TestAdminContentService_CreateDongengCategory_Success(t *testing.T) {
 	svc := NewAdminContentService(db)
 
 	input := models.DongengCategory{
-		Name:  "Adventure",
-		Emoji: "🗺️",
+		Name:     "Adventure",
+		ImageURL: "https://cdn.example.com/adventure.png",
 	}
 
 	mock.ExpectBegin()
@@ -814,8 +814,8 @@ func TestAdminContentService_UpdateDongengCategory_Success(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "dongeng_categories" WHERE id = $1 AND is_deleted = false`)).
 		WithArgs(id.String(), 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "emoji", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
-			AddRow(id, "Fairy Tales", "🧚", "", nil, 0, now, now, false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "image_url", "parent_id", "sort_order", "created_at", "updated_at", "is_deleted"}).
+			AddRow(id, "Fairy Tales", "", nil, 0, now, now, false))
 
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE "dongeng_categories" SET`).

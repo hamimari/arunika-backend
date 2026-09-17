@@ -43,7 +43,14 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		auth.POST("/signup", authHandler.SignUp)
 		auth.GET("/check-availability", authHandler.CheckAvailability)
 		auth.POST("/send-otp", authHandler.SendOtp)
-		auth.POST("/refresh-token", middlewares.JWTAuthMiddleware(rdb), authHandler.RefreshToken)
+		// No JWT middleware: an expired access token is exactly when a
+		// refresh is needed, and the refresh token in the body is the
+		// credential. Rate-limited so the endpoint can't be used to probe
+		// for valid tokens.
+		// The limit is per client IP and generous, since a carrier NAT can
+		// put many legitimate users behind one address; a single app
+		// refreshes at most once per access-token lifetime (15 minutes).
+		auth.POST("/refresh-token", middlewares.RateLimitMiddleware(rdb, "refresh-token", 120, 15*time.Minute), authHandler.RefreshToken)
 		auth.POST("/logout", middlewares.JWTAuthMiddleware(rdb), authHandler.Logout)
 	}
 	r.POST("/forgot-password", middlewares.RateLimitMiddleware(rdb, "forgot-password", 5, 15*time.Minute), authHandler.ForgotPassword)
@@ -115,7 +122,12 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 
 	// ── Orders ───────────────────────────────────────────────────────────────
 	orderHandler := handlers.NewOrderHandler(reg.OrderService, reg.PaymentService)
+	r.GET("/orders", middlewares.JWTAuthMiddleware(rdb), orderHandler.List)
 	r.GET("/orders/:id", middlewares.JWTAuthMiddleware(rdb), orderHandler.GetByID)
+
+	// ── App feature flags ─────────────────────────────────────────────────────
+	featureFlagHandler := handlers.NewFeatureFlagHandler(reg.FeatureFlagService)
+	r.GET("/app/feature-flags", featureFlagHandler.GetPublic)
 
 	// ── Premium Packs ─────────────────────────────────────────────────────────
 	premiumPackHandler := handlers.NewPremiumPackHandler(reg.PremiumPackService)
@@ -195,7 +207,12 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.PATCH("/users/:id/permission", adminUserHandler.UpdatePermission)
 
 		// Campaigns
+		admin.GET("/campaigns", adminCampaignHandler.List)
 		admin.POST("/campaigns", adminCampaignHandler.Dispatch)
+
+		// App feature flags
+		admin.GET("/feature-flags", featureFlagHandler.AdminList)
+		admin.PATCH("/feature-flags/:key", featureFlagHandler.AdminToggle)
 
 		// Content — Banners
 		admin.GET("/content/banners", bannerHandler.List)

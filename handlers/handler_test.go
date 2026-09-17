@@ -57,16 +57,16 @@ func TestDongengHandler_GetFairyTales_Success(t *testing.T) {
 	now := time.Now()
 
 	countRows := sqlmock.NewRows([]string{"count"}).AddRow(1)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "dongengs" WHERE is_deleted = $1`)).
-		WithArgs(false).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "dongengs" WHERE is_deleted = $1 AND hidden = $2`)).
+		WithArgs(false, false).
 		WillReturnRows(countRows)
 
 	rows := sqlmock.NewRows([]string{
 		"id", "title", "age_start", "age_end", "image_url", "audio_url",
 		"is_free", "category_id", "duration", "created_at", "updated_at", "is_deleted",
 	}).AddRow(id1, "Kancil", 3, 6, "https://img/k.png", "", true, nil, int64(300), now, now, false)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "dongengs" WHERE is_deleted = $1 LIMIT $2`)).
-		WithArgs(false, 10).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "dongengs" WHERE is_deleted = $1 AND hidden = $2 LIMIT $3`)).
+		WithArgs(false, false, 10).
 		WillReturnRows(rows)
 
 	w := httptest.NewRecorder()
@@ -86,8 +86,8 @@ func TestDongengHandler_GetFairyTales_DBError(t *testing.T) {
 	svc := newTestDongengService(gormDB)
 	h := NewDongengHandler(svc)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "dongengs" WHERE is_deleted = $1`)).
-		WithArgs(false).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "dongengs" WHERE is_deleted = $1 AND hidden = $2`)).
+		WithArgs(false, false).
 		WillReturnError(gorm.ErrInvalidDB)
 
 	w := httptest.NewRecorder()
@@ -192,7 +192,7 @@ func TestDongengHandler_GetHistory_Success(t *testing.T) {
 	dongengID := uuid.New()
 	now := time.Now()
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT h.dongeng_id, h.progress_seconds, d.duration AS total_seconds, h.started_at FROM dongeng_play_history h JOIN dongengs d ON d.id = h.dongeng_id AND d.is_deleted = false WHERE h.user_id = $1 ORDER BY h.updated_at DESC LIMIT $2`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT h.dongeng_id, h.progress_seconds, d.duration AS total_seconds, h.started_at FROM dongeng_play_history h JOIN dongengs d ON d.id = h.dongeng_id AND d.is_deleted = false AND d.hidden = false WHERE h.user_id = $1 ORDER BY h.updated_at DESC LIMIT $2`)).
 		WithArgs(userID, 20).
 		WillReturnRows(sqlmock.NewRows([]string{"dongeng_id", "progress_seconds", "total_seconds", "started_at"}).
 			AddRow(dongengID, 10, int64(120), now))
@@ -254,8 +254,8 @@ func TestArHandler_FindById_Success(t *testing.T) {
 		"id", "type", "title", "file_url", "sound_url", "short_code", "created_at", "expires_at",
 	}).AddRow("card-1", "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 ORDER BY "ar_cards"."id" LIMIT $2`)).
-		WithArgs("card-1", 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs("card-1", false, 1).
 		WillReturnRows(rows)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).

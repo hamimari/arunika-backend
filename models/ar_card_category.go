@@ -13,7 +13,6 @@ import (
 type ArCardCategory struct {
 	ID        uuid.UUID        `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Name      string           `gorm:"type:varchar(100);not null"                     json:"name"`
-	Emoji     string           `gorm:"type:varchar(20);not null;default:''"           json:"emoji"`
 	ImageURL  string           `gorm:"column:image_url;type:text;default:''"          json:"image_url"`
 	ParentID  *uuid.UUID       `gorm:"column:parent_id;type:uuid"                     json:"parent_id,omitempty"`
 	SortOrder int              `gorm:"column:sort_order;not null;default:0"           json:"sort_order"`

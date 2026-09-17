@@ -50,7 +50,7 @@ func (s *AdminContentService) UpdateFairyTale(id string, input models.Dongeng) (
 	}
 	if err := s.db.Model(&item).Select(
 		"title", "age_start", "age_end", "image_url", "audio_url",
-		"is_free", "category_id", "duration", "hidden",
+		"is_free", "category_id", "duration",
 		"dongeng_category_id", "dongeng_sub_category_id",
 	).Updates(input).Error; err != nil {
 		return nil, err
@@ -100,7 +100,8 @@ func (s *AdminContentService) UpdateArCard(id string, input models.ArCards) (*mo
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"type", "title", "file_url", "sound_url", "short_code", "hidden", "image_url", "printable_img",
+		"type", "title", "file_url", "sound_url", "short_code", "image_url", "printable_img",
+		"description",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func (s *AdminContentService) UpdateTracingItem(id string, input models.TracingI
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"type", "label", "guide_path_json", "difficulty", "hidden",
+		"type", "label", "guide_path_json", "difficulty",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -196,7 +197,7 @@ func (s *AdminContentService) UpdateCountingQuestion(id string, input models.Cou
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"level", "question_json", "answer", "hidden",
+		"level", "question_json", "answer",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -244,7 +245,7 @@ func (s *AdminContentService) UpdateBadge(id string, input models.Badge) (*model
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"feature", "level", "threshold", "hidden",
+		"feature", "level", "threshold",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -292,7 +293,7 @@ func (s *AdminContentService) UpdateCategory(id string, input models.Categories)
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"name", "image_url", "hidden",
+		"name", "image_url",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
@@ -367,7 +368,7 @@ func (s *AdminContentService) UpdateArCardCategory(id string, input models.ArCar
 	if err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error; err != nil {
 		return nil, errors.New("not found")
 	}
-	if err := s.db.Model(&item).Select("name", "emoji", "image_url", "parent_id", "sort_order").Updates(input).Error; err != nil {
+	if err := s.db.Model(&item).Select("name", "image_url", "parent_id", "sort_order").Updates(input).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -407,7 +408,7 @@ func (s *AdminContentService) UpdateDongengCategory(id string, input models.Dong
 	if err := s.db.Where("id = ? AND is_deleted = false", id).First(&item).Error; err != nil {
 		return nil, errors.New("not found")
 	}
-	if err := s.db.Model(&item).Select("name", "emoji", "image_url", "parent_id", "sort_order").Updates(input).Error; err != nil {
+	if err := s.db.Model(&item).Select("name", "image_url", "parent_id", "sort_order").Updates(input).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil

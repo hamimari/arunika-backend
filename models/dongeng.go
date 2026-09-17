@@ -13,7 +13,7 @@ type Dongeng struct {
 	ImageUrl   string        `json:"image_url"   gorm:"column:image_url"`
 	AudioUrl   string        `json:"audio_url"   gorm:"column:audio_url"`
 	IsFree     bool          `json:"is_free"     gorm:"column:is_free"`
-	CategoryId string        `json:"category_id" gorm:"column:category_id"`
+	CategoryId *uuid.UUID    `json:"category_id" gorm:"column:category_id;type:uuid"` // nullable: empty must be NULL, not ''
 	Duration   int64         `json:"duration"    gorm:"column:duration"`
 	Hidden     bool          `json:"hidden"      gorm:"column:hidden;default:false"`
 	Pages      []DongengPage `json:"pages"       gorm:"foreignKey:DongengId"`
@@ -28,6 +28,7 @@ type Dongeng struct {
 
 // FindAllFairyTales returns a paginated, optionally-filtered list of dongengs
 // and the total matching count (for the caller to derive hasMore).
+// Deleted and hidden (backoffice visibility toggle) dongengs are excluded.
 // search is case-insensitive title prefix/substring match; empty string = no filter.
 // categoryID/subCategoryID, when non-empty, filter to that dongeng_category_id/
 // dongeng_sub_category_id. page is 1-indexed; perPage is the page size.
@@ -36,7 +37,7 @@ func FindAllFairyTales(db *gorm.DB, search string, page, perPage int, categoryID
 	var fairyTales []Dongeng
 
 	applyFilters := func(q *gorm.DB) *gorm.DB {
-		q = q.Where("is_deleted = ?", false)
+		q = q.Where("is_deleted = ?", false).Where("hidden = ?", false)
 		if search != "" {
 			q = q.Where("title ILIKE ?", "%"+search+"%")
 		}
@@ -63,8 +64,8 @@ func FindAllFairyTales(db *gorm.DB, search string, page, perPage int, categoryID
 	return fairyTales, total, nil
 }
 
-// FindFairyTaleByID returns a single dongeng with all its pages and category
-// refs pre-loaded.
+// FindFairyTaleByID returns a single visible (not deleted, not hidden) dongeng
+// with all its pages and category refs pre-loaded.
 func FindFairyTaleByID(db *gorm.DB, id string) (*Dongeng, error) {
 	var dongeng Dongeng
 	result := db.
@@ -73,7 +74,7 @@ func FindFairyTaleByID(db *gorm.DB, id string) (*Dongeng, error) {
 		}).
 		Preload("CategoryRef").
 		Preload("SubCategoryRef").
-		Where("id = ? AND is_deleted = ?", id, false).
+		Where("id = ? AND is_deleted = ? AND hidden = ?", id, false, false).
 		First(&dongeng)
 	if result.Error != nil {
 		return nil, result.Error

@@ -5,14 +5,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/joho/godotenv"
-	"gopkg.in/gomail.v2"
 	"html/template"
 	"log/slog"
 	"math/rand"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
+	"gopkg.in/gomail.v2"
 )
 
 type OTPEmailData struct {
@@ -33,7 +34,7 @@ func SendOTPEmail(to string) error {
 	}
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", "no-reply@arunika.com")
+	m.SetHeader("From", fromAddress())
 	m.SetHeader("To", to)
 	m.SetHeader("Subject", "Arunika OTP Code")
 	m.SetBody("text/html", body.String())
@@ -68,7 +69,7 @@ func SendGenericEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("SMTP_PORT not configured: %w", err)
 	}
 	m := gomail.NewMessage()
-	m.SetHeader("From", "no-reply@arunika.com")
+	m.SetHeader("From", fromAddress())
 	m.SetHeader("To", to)
 	m.SetHeader("Subject", subject)
 	m.SetBody("text/html", htmlBody)
@@ -78,6 +79,21 @@ func SendGenericEmail(to, subject, htmlBody string) error {
 		return err
 	}
 	return nil
+}
+
+// fromAddress is the sender shown on outgoing email. SMTP_EMAIL lets the
+// sending domain be configured without a code change (most SMTP providers
+// reject or spoof-flag a From address on a domain they haven't verified for
+// this account, so it should usually match SMTP_USER's domain); it's
+// optional and falls back to the SMTP account address, then a placeholder.
+func fromAddress() string {
+	if v := os.Getenv("SMTP_EMAIL"); v != "" {
+		return v
+	}
+	if v := os.Getenv("SMTP_USER"); v != "" {
+		return v
+	}
+	return "arunika.helpdesk@gmail.com"
 }
 
 func generateOtp() string {

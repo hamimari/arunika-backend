@@ -35,7 +35,7 @@ func TestFindAllCards_ValidCategory_ReturnsCards(t *testing.T) {
 		now, nil,
 	)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE category_id`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE hidden = $1 AND category_id`)).
 		WillReturnRows(rows)
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -53,7 +53,7 @@ func TestFindAllCards_EmptyCategory_ReturnsEmptySlice(t *testing.T) {
 
 	catID := uuid.New()
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE category_id`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE hidden = $1 AND category_id`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "title"}))
 
 	cards, err := models.FindAllCards(gormDB, catID.String(), "")
@@ -66,7 +66,7 @@ func TestFindAllCards_UnknownCategory_ReturnsEmptyNotError(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	_ = mock
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE category_id`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE hidden = $1 AND category_id`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "title"}))
 
 	cards, err := models.FindAllCards(gormDB, uuid.NewString(), "")

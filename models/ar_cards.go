@@ -34,7 +34,6 @@ type ArCards struct {
 	SubCategoryID  *uuid.UUID      `gorm:"column:sub_category_id;type:uuid" json:"sub_category_id,omitempty"`
 	CategoryRef    *ArCardCategory `gorm:"foreignKey:CategoryID"            json:"category_ref,omitempty"`
 	SubCategoryRef *ArCardCategory `gorm:"foreignKey:SubCategoryID"         json:"sub_category_ref,omitempty"`
-	IsDeleted      bool            `gorm:"column:is_deleted;default:false"  json:"-"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 	CreatedAt      time.Time       `json:"created_at"`
 	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
@@ -42,7 +41,7 @@ type ArCards struct {
 
 func FindCardById(db *gorm.DB, id string) (*ArCards, error) {
 	var arCard ArCards
-	result := db.Preload("CategoryRef").Preload("SubCategoryRef").Where("id = ?", id).First(&arCard)
+	result := db.Preload("CategoryRef").Preload("SubCategoryRef").Where("id = ? AND hidden = ?", id, false).First(&arCard)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -50,7 +49,8 @@ func FindCardById(db *gorm.DB, id string) (*ArCards, error) {
 }
 
 func FindAllCards(db *gorm.DB, categoryID, subCategoryID string) ([]ArCards, error) {
-	query := db.Model(&ArCards{}).Preload("CategoryRef").Preload("SubCategoryRef")
+	// Hidden cards (backoffice visibility toggle) are not served to the app.
+	query := db.Model(&ArCards{}).Preload("CategoryRef").Preload("SubCategoryRef").Where("hidden = ?", false)
 	if categoryID != "" {
 		query = query.Where("category_id = ?", categoryID)
 	}

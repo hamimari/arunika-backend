@@ -53,7 +53,7 @@ func (s *BannerService) Update(id string, input models.Banner) (*models.Banner, 
 		return nil, errors.New("not found")
 	}
 	if err := s.db.Model(&item).Select(
-		"title", "image_url", "link_url", "description", "is_active", "sort_order", "hidden",
+		"title", "image_url", "link_url", "description", "is_active", "sort_order",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}

@@ -4,13 +4,22 @@ import (
 	"arunika_backend/models"
 	"arunika_backend/services"
 	"bytes"
+	"errors"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
+
+// RefreshTokenRequest carries the refresh token in the body — the endpoint
+// takes no Authorization header, since the access token has normally expired
+// by the time a refresh is needed.
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
 
 type AuthHandler struct {
 	service *services.AuthService
@@ -183,24 +192,26 @@ func (h *AuthHandler) SendOtp(c *gin.Context) {
 		"expires_in": 300})
 }
 
+// RefreshToken exchanges a refresh token for a new token pair. It is
+// deliberately not behind JWTAuthMiddleware: the whole point of refreshing is
+// that the access token has expired, so requiring a valid one would sign
+// people out after 15 minutes of not using the app.
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	tokenUserID, _ := c.Get("userID")
-	refreshTokenParam, _ := c.Get("refresh_token")
-	email, _ := c.Get("email")
-	if refreshTokenParam == "" {
+	var req RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RefreshToken) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing refresh token"})
 		return
 	}
 
-	userID, err := h.service.ValidateRefreshToken(tokenUserID.(string), refreshTokenParam.(string))
+	accessToken, refreshToken, err := h.service.RefreshSession(strings.TrimSpace(req.RefreshToken))
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired refresh token"})
-		return
-	}
-
-	accessToken, refreshToken, err := h.service.GenerateJwtToken(userID, email.(string))
-	if err != nil {
-		slog.Error("token generation failed", "error", err)
+		if errors.Is(err, services.ErrRefreshTokenInvalid) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired refresh token"})
+			return
+		}
+		// A server-side failure must not read as "your session is over" —
+		// 500 tells the client to retry instead of signing the user out.
+		slog.Error("token refresh failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate new tokens"})
 		return
 	}

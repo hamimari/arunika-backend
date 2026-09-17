@@ -196,3 +196,161 @@ func (s *OrderService) GetOwnedOrder(orderID, userID uuid.UUID) (*models.Order, 
 	}
 	return order, nil
 }
+
+// Item types reported on UserOrderView.ItemType.
+const (
+	OrderItemArCard  = "AR_CARD"
+	OrderItemDongeng = "DONGENG"
+	OrderItemPackage = "PACKAGE"
+)
+
+// UserOrderView is one row of a user's own payment history: an order plus
+// the name/type of what was bought and how it was paid.
+type UserOrderView struct {
+	ID            uuid.UUID `json:"id"`
+	ItemType      string    `json:"item_type"` // AR_CARD | DONGENG | PACKAGE | "" (content since deleted)
+	ItemName      string    `json:"item_name"`
+	PackageType   string    `json:"package_type,omitempty"` // content | subscription, PACKAGE only
+	AmountIdr     int64     `json:"amount_idr"`
+	Status        string    `json:"status"`
+	PaymentType   string    `json:"payment_type"`   // raw Midtrans payment_type, "" until the user picks a method
+	PaymentMethod string    `json:"payment_method"` // human-readable label for PaymentType
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// ListOrdersForUser returns one page of userID's orders (every status),
+// newest first.
+func (s *OrderService) ListOrdersForUser(userID uuid.UUID, page, perPage int) ([]models.Order, int64, error) {
+	var orders []models.Order
+	var total int64
+	q := s.db.Model(&models.Order{}).Where("user_id = ?", userID)
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err := q.Order("created_at DESC").
+		Limit(perPage).Offset((page - 1) * perPage).
+		Find(&orders).Error
+	return orders, total, err
+}
+
+// EnrichForUser resolves item names/types and payment methods for a page of
+// orders with a fixed number of batch queries (no per-order lookups).
+func (s *OrderService) EnrichForUser(orders []models.Order) ([]UserOrderView, error) {
+	views := make([]UserOrderView, len(orders))
+	if len(orders) == 0 {
+		return views, nil
+	}
+
+	orderIDs := make([]uuid.UUID, 0, len(orders))
+	productIDs := make([]uuid.UUID, 0)
+	packageIDs := make([]uuid.UUID, 0)
+	for _, o := range orders {
+		orderIDs = append(orderIDs, o.ID)
+		if o.ProductID != nil {
+			productIDs = append(productIDs, *o.ProductID)
+		}
+		if o.PackageID != nil {
+			packageIDs = append(packageIDs, *o.PackageID)
+		}
+	}
+
+	type productRow struct {
+		ProductID string
+		Title     string
+	}
+	arCardByProduct := map[string]string{}
+	dongengByProduct := map[string]string{}
+	if len(productIDs) > 0 {
+		var rows []productRow
+		if err := s.db.Table("product_ar_cards pac").
+			Select("pac.product_id::text AS product_id, a.title AS title").
+			Joins("JOIN ar_cards a ON a.id = pac.ar_card_id").
+			Where("pac.product_id IN ?", productIDs).
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			arCardByProduct[r.ProductID] = r.Title
+		}
+		rows = nil
+		if err := s.db.Table("product_dongengs pd").
+			Select("pd.product_id::text AS product_id, d.title AS title").
+			Joins("JOIN dongengs d ON d.id = pd.dongeng_id").
+			Where("pd.product_id IN ?", productIDs).
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			dongengByProduct[r.ProductID] = r.Title
+		}
+	}
+
+	packageByID := map[string]models.PremiumPackage{}
+	if len(packageIDs) > 0 {
+		var packages []models.PremiumPackage
+		if err := s.db.Where("id IN ?", packageIDs).Find(&packages).Error; err != nil {
+			return nil, err
+		}
+		for _, p := range packages {
+			packageByID[p.ID] = p
+		}
+	}
+
+	// Every payment row that recorded a method, newest first. The initial
+	// row written at checkout has an empty payment_type, so it's skipped.
+	var payments []models.Payment
+	if err := s.db.Select("order_id", "payment_type", "raw_payload", "created_at").
+		Where("order_id IN ? AND payment_type IS NOT NULL AND payment_type <> ''", orderIDs).
+		Order("created_at DESC").
+		Find(&payments).Error; err != nil {
+		return nil, err
+	}
+	type method struct {
+		paymentType, label string
+		specific           bool
+	}
+	methodByOrder := map[uuid.UUID]method{}
+	for _, p := range payments {
+		label, specific := PaymentMethodLabel(p.PaymentType, p.RawPayload)
+		// Keep the newest row, unless an older one names the bank/store
+		// and the newest doesn't (a status-sync row carries less detail
+		// than the original webhook payload).
+		if cur, ok := methodByOrder[p.OrderID]; ok && (cur.specific || !specific) {
+			continue
+		}
+		methodByOrder[p.OrderID] = method{paymentType: p.PaymentType, label: label, specific: specific}
+	}
+
+	for i, o := range orders {
+		view := UserOrderView{
+			ID:        o.ID,
+			AmountIdr: o.AmountIdr,
+			Status:    o.Status,
+			CreatedAt: o.CreatedAt,
+			UpdatedAt: o.UpdatedAt,
+		}
+		switch {
+		case o.PackageID != nil:
+			view.ItemType = OrderItemPackage
+			if pkg, ok := packageByID[o.PackageID.String()]; ok {
+				view.ItemName = pkg.Name
+				view.PackageType = pkg.Type
+			}
+		case o.ProductID != nil:
+			if title, ok := arCardByProduct[o.ProductID.String()]; ok {
+				view.ItemType = OrderItemArCard
+				view.ItemName = title
+			} else if title, ok := dongengByProduct[o.ProductID.String()]; ok {
+				view.ItemType = OrderItemDongeng
+				view.ItemName = title
+			}
+		}
+		if m, ok := methodByOrder[o.ID]; ok {
+			view.PaymentType = m.paymentType
+			view.PaymentMethod = m.label
+		}
+		views[i] = view
+	}
+	return views, nil
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"html/template"
 	"log/slog"
 	"os"
 	"time"
@@ -24,28 +25,93 @@ func NewAuthService(db *gorm.DB, redis *redis.Client) *AuthService {
 	return &AuthService{db: db, redis: redis}
 }
 
-func (s *AuthService) GenerateJwtToken(userId, email string) (string, string, error) {
-	token, refreshToken, err := utils.GenerateJWT(userId, email)
+// SessionLifetime is how long a session survives without being used. It is a
+// sliding window: every refresh pushes the expiry back to a full week from
+// now, so someone who opens the app at least once a week stays signed in,
+// while an abandoned session lapses a week after its last use.
+const SessionLifetime = 7 * 24 * time.Hour
 
-	refreshTokenExpiresAt := time.Now().Add(7 * 24 * time.Hour) // session lifetime: 1 week
+// ErrRefreshTokenInvalid means the session is genuinely over — the token is
+// unknown, already rotated away, or lapsed — and the user must sign in again.
+// Any other error from RefreshSession is a server-side failure, where the
+// client should retry rather than drop the session.
+var ErrRefreshTokenInvalid = errors.New("invalid or expired refresh token")
+
+// issueTokens mints an access/refresh token pair and persists the refresh
+// token with a fresh expiry.
+func (s *AuthService) issueTokens(userId, email string) (string, string, error) {
+	token, refreshToken, err := utils.GenerateJWT(userId, email)
+	if err != nil {
+		return "", "", err
+	}
+
 	refreshTokenEntity := models.RefreshToken{
 		UserId:    userId,
 		Token:     refreshToken,
-		ExpiresAt: refreshTokenExpiresAt,
+		ExpiresAt: time.Now().Add(SessionLifetime),
 	}
+	if err := s.db.Create(&refreshTokenEntity).Error; err != nil {
+		return "", "", err
+	}
+	return token, refreshToken, nil
+}
 
-	err = s.db.Create(&refreshTokenEntity).Error
+func (s *AuthService) GenerateJwtToken(userId, email string) (string, string, error) {
+	token, refreshToken, err := s.issueTokens(userId, email)
 	if err != nil {
 		return "", "", err
 	}
 
 	// Record user session for DAU tracking (best-effort, non-blocking).
+	// Only real sign-ins count — refreshes would inflate the numbers.
 	if uid, parseErr := uuid.Parse(userId); parseErr == nil {
 		session := models.UserSession{UserID: uid}
 		go s.db.Create(&session)
 	}
 
-	return token, refreshToken, err
+	return token, refreshToken, nil
+}
+
+// RefreshSession exchanges a valid refresh token for a new token pair. The
+// refresh token is the only credential needed: the access token it was issued
+// alongside lives 15 minutes, so by the time a user reopens the app it has
+// almost always expired.
+//
+// The old refresh token is rotated out, so each one is usable exactly once and
+// the table doesn't grow without bound.
+func (s *AuthService) RefreshSession(refreshToken string) (string, string, error) {
+	stored, err := models.FindRefreshToken(s.db, refreshToken)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", "", ErrRefreshTokenInvalid
+		}
+		return "", "", err
+	}
+	if time.Now().After(stored.ExpiresAt) {
+		// Lapsed session: drop the row so it can't be probed again.
+		_ = models.DeleteByToken(s.db, refreshToken)
+		return "", "", ErrRefreshTokenInvalid
+	}
+
+	user, err := models.FindUserById(s.db, stored.UserId)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", "", ErrRefreshTokenInvalid
+		}
+		return "", "", err
+	}
+
+	accessToken, newRefreshToken, err := s.issueTokens(stored.UserId, user.EmailAddress)
+	if err != nil {
+		return "", "", err
+	}
+	// Only revoke the old token once its replacement is safely stored, so a
+	// failure here can never leave the user with no valid refresh token.
+	if delErr := models.DeleteByToken(s.db, refreshToken); delErr != nil {
+		slog.Warn("refresh: failed to delete rotated token", "error", delErr)
+	}
+
+	return accessToken, newRefreshToken, nil
 }
 
 func (s *AuthService) Signup(request models.Parent) (models.Parent, error) {
@@ -87,26 +153,17 @@ func (s *AuthService) CheckAvailability(email, phone string) (emailTaken bool, p
 }
 
 func (s *AuthService) SendOtp(request models.Parent) (models.Parent, error) {
-	user, _ := models.FindUserByEmail(s.db, request.EmailAddress)
-	err := SendOTPEmail(user.EmailAddress)
-	if err != nil {
+	user, err := models.FindUserByEmail(s.db, request.EmailAddress)
+	if err != nil || user == nil {
+		// Same generic error either way — an unknown email here must not be
+		// distinguishable from a real send failure (account enumeration).
+		return models.Parent{}, errors.New("error when sending the otp")
+	}
+	if err := SendOTPEmail(user.EmailAddress); err != nil {
 		return models.Parent{}, errors.New("error when sending the otp")
 	}
 
 	return request, nil
-}
-
-func (s *AuthService) ValidateRefreshToken(userId string, refreshToken string) (string, error) {
-	refreshTokenEntity, err := models.FindUserUserIdAndToken(s.db, userId, refreshToken)
-	if err != nil {
-		return "", errors.New("token not found")
-	}
-
-	if time.Now().After(refreshTokenEntity.ExpiresAt) {
-		return "", errors.New("token expired")
-	}
-
-	return refreshTokenEntity.UserId, nil
 }
 
 func (s *AuthService) ValidateCredentials(email string, password string) (*models.Parent, error) {
@@ -161,10 +218,16 @@ func (s *AuthService) ForgotPassword(email string) error {
 
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", os.Getenv("APP_DOMAIN"), resetToken)
 	subject := "Password Reset Request"
-	body := fmt.Sprintf("Hi %s,\n\nClick the link below to reset your password:\n\n%s\n\nThis link will expire in 15 minutes.\n\nBest,\nYour App Team",
-		user.Name, resetLink)
+	body := fmt.Sprintf(
+		"<p>Hi %s,</p><p>Click the link below to reset your password:</p><p><a href=\"%s\">%s</a></p><p>This link will expire in 15 minutes.</p><p>Best,<br>Arunika Team</p>",
+		template.HTMLEscapeString(user.Name), resetLink, resetLink,
+	)
 
-	return utils.SendEmail(user.EmailAddress, subject, body)
+	// Goes through the same SMTP path as OTP/campaign email (gomail, reads
+	// SMTP_PASS) rather than the old net/smtp-based utils.SendEmail, which
+	// read a "SMTP_PASSWORD" variable that was never set anywhere in this
+	// codebase — every password-reset email silently failed to send.
+	return SendGenericEmail(user.EmailAddress, subject, body)
 }
 
 func (s *AuthService) ResetPassword(token, newPassword string) error {

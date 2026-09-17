@@ -125,7 +125,7 @@ func (s *DongengService) GetFairyTales(search string, page, perPage int, userID 
 			AudioUrl:             d.AudioUrl,
 			IsFree:               d.IsFree,
 			IsUnlocked:           unlocked,
-			CategoryId:           d.CategoryId,
+			CategoryId:           uuidString(d.CategoryId),
 			DongengCategoryID:    d.DongengCategoryID,
 			DongengSubCategoryID: d.DongengSubCategoryID,
 			CategoryRef:          d.CategoryRef,
@@ -213,7 +213,7 @@ func (s *DongengService) GetFairyTaleByID(id string, userID *uuid.UUID) (*Dongen
 		AudioUrl:             dongeng.AudioUrl,
 		IsFree:               dongeng.IsFree,
 		IsUnlocked:           unlocked,
-		CategoryId:           dongeng.CategoryId,
+		CategoryId:           uuidString(dongeng.CategoryId),
 		DongengCategoryID:    dongeng.DongengCategoryID,
 		DongengSubCategoryID: dongeng.DongengSubCategoryID,
 		CategoryRef:          dongeng.CategoryRef,
@@ -229,4 +229,13 @@ func (s *DongengService) GetFairyTaleByID(id string, userID *uuid.UUID) (*Dongen
 		resp.PriceIdr = &product.PriceIdr
 	}
 	return resp, nil
+}
+
+// uuidString renders an optional UUID for responses that expose it as a plain
+// string, with "" for unset.
+func uuidString(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }

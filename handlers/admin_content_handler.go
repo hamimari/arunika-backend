@@ -525,7 +525,6 @@ func (h *AdminContentHandler) DeleteDongengPage(c *gin.Context) {
 type arCardCategoryResponse struct {
 	ID        interface{} `json:"id"`
 	Name      string      `json:"name"`
-	Emoji     string      `json:"emoji"`
 	ImageURL  string      `json:"image_url"`
 	ParentID  interface{} `json:"parent_id,omitempty"`
 	SortOrder int         `json:"sort_order"`
@@ -538,7 +537,6 @@ func toArCardCategoryResponse(item models.ArCardCategory) arCardCategoryResponse
 	return arCardCategoryResponse{
 		ID:        item.ID,
 		Name:      item.Name,
-		Emoji:     item.Emoji,
 		ImageURL:  item.ImageURL,
 		ParentID:  item.ParentID,
 		SortOrder: item.SortOrder,
@@ -624,7 +622,6 @@ func (h *AdminContentHandler) ToggleArCardCategoryVisibility(c *gin.Context) {
 type dongengCategoryResponse struct {
 	ID        interface{} `json:"id"`
 	Name      string      `json:"name"`
-	Emoji     string      `json:"emoji"`
 	ImageURL  string      `json:"image_url"`
 	ParentID  interface{} `json:"parent_id,omitempty"`
 	SortOrder int         `json:"sort_order"`
@@ -637,7 +634,6 @@ func toDongengCategoryResponse(item models.DongengCategory) dongengCategoryRespo
 	return dongengCategoryResponse{
 		ID:        item.ID,
 		Name:      item.Name,
-		Emoji:     item.Emoji,
 		ImageURL:  item.ImageURL,
 		ParentID:  item.ParentID,
 		SortOrder: item.SortOrder,

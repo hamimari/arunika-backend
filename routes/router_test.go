@@ -58,7 +58,11 @@ func TestRoutes_AdminEndpointsRegistered(t *testing.T) {
 		{http.MethodGet, "/admin/users/some-id"},
 		{http.MethodPatch, "/admin/users/some-id/permission"},
 		// Campaigns
+		{http.MethodGet, "/admin/campaigns"},
 		{http.MethodPost, "/admin/campaigns"},
+		// Feature flags
+		{http.MethodGet, "/admin/feature-flags"},
+		{http.MethodPatch, "/admin/feature-flags/qr_scan"},
 		// Banners (admin)
 		{http.MethodGet, "/admin/content/banners"},
 		{http.MethodPost, "/admin/content/banners"},

@@ -25,6 +25,17 @@ func FindUserByEmail(db *gorm.DB, email string) (*Parent, error) {
 	return &user, nil
 }
 
+// FindUserById looks a user up by primary key — used when refreshing a
+// session, where the refresh token is the only credential presented.
+func FindUserById(db *gorm.DB, id string) (*Parent, error) {
+	var user Parent
+	result := db.Where("id = ?", id).First(&user)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
 func FindUserByPhoneNumber(db *gorm.DB, phone string) (*Parent, error) {
 	var user Parent
 	result := db.Where("phone_number = ?", phone).First(&user)
