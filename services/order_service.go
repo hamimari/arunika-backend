@@ -35,8 +35,17 @@ type AdminOrderView struct {
 	PackageName *string    `json:"package_name,omitempty"`
 	AmountIdr   int64      `json:"amount_idr"`
 	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// Provider is which payment rail this order was created against
+	// ("midtrans" | "google_play") — drives which single sync action the
+	// backoffice offers for it.
+	Provider string `json:"provider"`
+	// HasPurchaseToken reports whether a Google Play purchase token is on
+	// file for this order (never the token itself) — lets the backoffice
+	// sync a Play order in one click instead of asking an admin to paste
+	// one in manually.
+	HasPurchaseToken bool      `json:"has_purchase_token"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // List returns a paginated, optionally status-filtered and searched list of
@@ -119,14 +128,16 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 
 	for i, o := range orders {
 		view := AdminOrderView{
-			ID:        o.ID,
-			UserID:    o.UserID,
-			ProductID: o.ProductID,
-			PackageID: o.PackageID,
-			AmountIdr: o.AmountIdr,
-			Status:    o.Status,
-			CreatedAt: o.CreatedAt,
-			UpdatedAt: o.UpdatedAt,
+			ID:               o.ID,
+			UserID:           o.UserID,
+			ProductID:        o.ProductID,
+			PackageID:        o.PackageID,
+			AmountIdr:        o.AmountIdr,
+			Status:           o.Status,
+			Provider:         o.Provider,
+			HasPurchaseToken: o.PurchaseToken != nil && *o.PurchaseToken != "",
+			CreatedAt:        o.CreatedAt,
+			UpdatedAt:        o.UpdatedAt,
 		}
 		if parent, ok := parentByID[o.UserID]; ok {
 			view.UserName = parent.Name

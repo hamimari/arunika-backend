@@ -10,12 +10,13 @@ import (
 // Product is one purchasable content item, linked to a Feature (AR_CARD or DONGENG).
 // The actual content item it unlocks is found via ProductArCard/ProductDongeng.
 type Product struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	FeatureID uuid.UUID `gorm:"column:feature_id;type:uuid;not null"           json:"feature_id"`
-	PriceIdr  int64     `gorm:"column:price_idr;not null"                      json:"price_idr"`
-	IsActive  bool      `gorm:"column:is_active;not null;default:true"         json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	FeatureID     uuid.UUID `gorm:"column:feature_id;type:uuid;not null"           json:"feature_id"`
+	PriceIdr      int64     `gorm:"column:price_idr;not null"                      json:"price_idr"`
+	PlayProductID *string   `gorm:"column:play_product_id;type:text"               json:"play_product_id"`
+	IsActive      bool      `gorm:"column:is_active;not null;default:true"         json:"is_active"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func (Product) TableName() string { return "products" }

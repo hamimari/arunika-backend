@@ -12,12 +12,16 @@ type PremiumPackage struct {
 	Subtitle    string  `gorm:"type:varchar(255);not null"                     json:"subtitle"`
 	Description *string `gorm:"type:text"                                      json:"description"`
 	ImageURL    *string `gorm:"column:image_url;type:text"                     json:"image_url"`
-	PriceIdr    int     `gorm:"not null" json:"price_idr"`
-	Type        string  `gorm:"type:varchar(20);not null"                      json:"type"`
-	BadgeLabel  *string `gorm:"type:varchar(50)"                               json:"badge_label"`
-	IsBestValue bool    `gorm:"not null;default:false"                         json:"is_best_value"`
-	IsActive    bool    `gorm:"not null;default:true"                          json:"is_active"`
-	SortOrder   int     `gorm:"not null;default:0"                             json:"sort_order"`
+	// PlayProductID maps this package to a Google Play Console in-app
+	// product/subscription SKU. Nil means it isn't purchasable via Google
+	// Play Billing yet.
+	PlayProductID *string `gorm:"column:play_product_id;type:text"             json:"play_product_id"`
+	PriceIdr      int     `gorm:"not null" json:"price_idr"`
+	Type          string  `gorm:"type:varchar(20);not null"                      json:"type"`
+	BadgeLabel    *string `gorm:"type:varchar(50)"                               json:"badge_label"`
+	IsBestValue   bool    `gorm:"not null;default:false"                         json:"is_best_value"`
+	IsActive      bool    `gorm:"not null;default:true"                          json:"is_active"`
+	SortOrder     int     `gorm:"not null;default:0"                             json:"sort_order"`
 	// DurationDays is required when Type == "subscription" (enforced by a DB
 	// CHECK constraint) and NULL for Type == "content".
 	DurationDays *int      `gorm:"column:duration_days" json:"duration_days"`
@@ -53,6 +57,17 @@ func FindAllPremiumPackages(db *gorm.DB) ([]PremiumPackage, error) {
 func FindPremiumPackageByID(db *gorm.DB, id string) (*PremiumPackage, error) {
 	var pack PremiumPackage
 	result := db.First(&pack, "id = ?", id)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &pack, nil
+}
+
+// FindPremiumPackageByPlayProductID returns the package mapped to the given
+// Google Play Console in-app product/subscription SKU.
+func FindPremiumPackageByPlayProductID(db *gorm.DB, playProductID string) (*PremiumPackage, error) {
+	var pack PremiumPackage
+	result := db.First(&pack, "play_product_id = ?", playProductID)
 	if result.Error != nil {
 		return nil, result.Error
 	}

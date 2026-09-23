@@ -321,7 +321,7 @@ func TestCategoryHandler_GetCategories_DBError(t *testing.T) {
 func TestUserHandler_GetUserByID_Forbidden(t *testing.T) {
 	gormDB, _ := setupHandlerDB(t)
 	svc := services.NewUserService(gormDB)
-	h := NewUserHandler(svc)
+	h := NewUserHandler(svc, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -337,7 +337,7 @@ func TestUserHandler_GetUserByID_Forbidden(t *testing.T) {
 func TestUserHandler_UpdateUser_InvalidInput(t *testing.T) {
 	gormDB, _ := setupHandlerDB(t)
 	svc := services.NewUserService(gormDB)
-	h := NewUserHandler(svc)
+	h := NewUserHandler(svc, nil, nil)
 
 	body := `{"name": ""}` // missing required fields
 	w := httptest.NewRecorder()

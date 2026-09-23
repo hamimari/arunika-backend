@@ -30,7 +30,9 @@ type UpdateChild struct {
 }
 
 type UserHandler struct {
-	service *services.UserService
+	service         *services.UserService
+	deletionService *services.AccountDeletionService
+	authService     *services.AuthService
 }
 
 // userResponse nests is_subscribed and subscription alongside the Parent
@@ -43,8 +45,46 @@ type userResponse struct {
 	Subscription *services.SubscriptionDetail `json:"subscription,omitempty"`
 }
 
-func NewUserHandler(s *services.UserService) *UserHandler {
-	return &UserHandler{service: s}
+func NewUserHandler(s *services.UserService, ds *services.AccountDeletionService, as *services.AuthService) *UserHandler {
+	return &UserHandler{service: s, deletionService: ds, authService: as}
+}
+
+// DeleteAccount handles DELETE /user/me — deletes/anonymizes the
+// authenticated user's data (see AccountDeletionService) and revokes their
+// current session so the token used to call this can't be reused.
+func (h *UserHandler) DeleteAccount(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID, err := uuid.Parse(userIDVal.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	if err := h.deletionService.DeleteAccount(userID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		slog.Error("DeleteAccount: failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+		return
+	}
+
+	if jti, ok := c.Get("jti"); ok {
+		if exp, ok := c.Get("exp"); ok {
+			if expTime, ok := exp.(time.Time); ok {
+				if err := h.authService.RevokeToken(c, jti.(string), expTime); err != nil {
+					slog.Warn("DeleteAccount: failed to revoke current token", "error", err)
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
 }
 
 func (h *UserHandler) GetUserByID(c *gin.Context) {

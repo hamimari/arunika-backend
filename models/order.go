@@ -12,6 +12,17 @@ const (
 	OrderStatusPaid    = "PAID"
 	OrderStatusFailed  = "FAILED"
 	OrderStatusExpired = "EXPIRED"
+	// OrderStatusRefunded marks a previously-PAID order whose purchase
+	// Google Play has since voided — a real refund/chargeback, or Google's
+	// own automatic refund of a Play Billing purchase left unacknowledged
+	// for 3 days. Distinct from EXPIRED, which means the order was never
+	// paid at all (its Midtrans Snap link lapsed unused).
+	OrderStatusRefunded = "REFUNDED"
+)
+
+const (
+	OrderProviderMidtrans   = "midtrans"
+	OrderProviderGooglePlay = "google_play"
 )
 
 // Order is created (status PENDING) before a Midtrans Snap transaction and
@@ -24,8 +35,17 @@ type Order struct {
 	PackageID *uuid.UUID `gorm:"column:package_id;type:uuid"                    json:"package_id,omitempty"`
 	AmountIdr int64      `gorm:"column:amount_idr;not null"                     json:"amount_idr"`
 	Status    string     `gorm:"column:status;not null;default:PENDING"         json:"status"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	// Provider is which payment rail this order was created against —
+	// drives which sync action the backoffice offers for it.
+	Provider string `gorm:"column:provider;not null;default:midtrans" json:"provider"`
+	// PurchaseToken is the Google Play purchase token, recorded as soon as
+	// the app reports it (regardless of whether verification against
+	// Google succeeds) so a later admin-triggered re-sync never needs it
+	// typed in by hand. Nil for Midtrans orders. Never serialized directly
+	// — see AdminOrderView.HasPurchaseToken.
+	PurchaseToken *string   `gorm:"column:purchase_token" json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func (Order) TableName() string { return "orders" }

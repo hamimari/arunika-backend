@@ -173,17 +173,18 @@ func isFCMNotFound(err error) bool {
 // so the caller needs to know nothing went out.
 var ErrFCMNotConfigured = fmt.Errorf("FCM is not configured (FIREBASE_SERVICE_ACCOUNT_JSON is empty)")
 
-// loadServiceAccountJSON resolves FIREBASE_SERVICE_ACCOUNT_JSON, which may
-// hold either the raw service-account JSON or a path to the JSON file.
-// Returns "" when the variable is unset.
-func loadServiceAccountJSON() (string, error) {
-	value := strings.TrimSpace(os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+// loadServiceAccountJSONFromEnv resolves envVar, which may hold either the
+// raw service-account JSON or a path to the JSON file. Returns "" when the
+// variable is unset. Shared by every Google service-account credential
+// (FCM, Google Play Billing, ...) that follows this same convention.
+func loadServiceAccountJSONFromEnv(envVar string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(envVar))
 	if value == "" || strings.HasPrefix(value, "{") {
 		return value, nil
 	}
 	content, err := os.ReadFile(value)
 	if err != nil {
-		return "", fmt.Errorf("FIREBASE_SERVICE_ACCOUNT_JSON is neither JSON nor a readable file path (%q): %w", value, err)
+		return "", fmt.Errorf("%s is neither JSON nor a readable file path (%q): %w", envVar, value, err)
 	}
 	return string(content), nil
 }
@@ -204,7 +205,7 @@ func (s *NotificationService) CheckPushConfigured() error {
 // fcmCredentials returns a cached token source and project id for the
 // service account in FIREBASE_SERVICE_ACCOUNT_JSON, or ok=false when unset.
 func (s *NotificationService) fcmCredentials() (ts oauth2.TokenSource, projectID string, ok bool, err error) {
-	saJSON, err := loadServiceAccountJSON()
+	saJSON, err := loadServiceAccountJSONFromEnv("FIREBASE_SERVICE_ACCOUNT_JSON")
 	if err != nil {
 		return nil, "", false, err
 	}

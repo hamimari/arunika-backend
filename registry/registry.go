@@ -7,30 +7,31 @@ import (
 )
 
 type ServiceRegistry struct {
-	DB                    *gorm.DB
-	AuthService           *services.AuthService
-	AdminAuthService      *services.AdminAuthService
-	AdminContentService   *services.AdminContentService
-	AdminAnalyticsService *services.AdminAnalyticsService
-	AdminUserService      *services.AdminUserService
-	AdminCampaignService  *services.AdminCampaignService
-	AdminPaymentService   *services.AdminPaymentService
-	BannerService         *services.BannerService
-	UserService           *services.UserService
-	ArService             *services.ArService
-	CategoryService       *services.CategoryService
-	DongengService        *services.DongengService
-	TracingService        *services.TracingService
-	CountingService       *services.CountingService
-	BadgeService          *services.BadgeService
-	PaymentService        *services.PaymentService
-	NotificationService   *services.NotificationService
-	GrowthService         *services.GrowthService
-	PremiumPackService    *services.PremiumPackService
-	ProductService        *services.ProductService
-	EntitlementService    *services.EntitlementService
-	OrderService          *services.OrderService
-	FeatureFlagService    *services.FeatureFlagService
+	DB                     *gorm.DB
+	AuthService            *services.AuthService
+	AdminAuthService       *services.AdminAuthService
+	AdminContentService    *services.AdminContentService
+	AdminAnalyticsService  *services.AdminAnalyticsService
+	AdminUserService       *services.AdminUserService
+	AdminCampaignService   *services.AdminCampaignService
+	AdminPaymentService    *services.AdminPaymentService
+	BannerService          *services.BannerService
+	UserService            *services.UserService
+	ArService              *services.ArService
+	CategoryService        *services.CategoryService
+	DongengService         *services.DongengService
+	TracingService         *services.TracingService
+	CountingService        *services.CountingService
+	BadgeService           *services.BadgeService
+	PaymentService         *services.PaymentService
+	NotificationService    *services.NotificationService
+	GrowthService          *services.GrowthService
+	PremiumPackService     *services.PremiumPackService
+	ProductService         *services.ProductService
+	EntitlementService     *services.EntitlementService
+	OrderService           *services.OrderService
+	FeatureFlagService     *services.FeatureFlagService
+	AccountDeletionService *services.AccountDeletionService
 }
 
 func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
@@ -39,29 +40,30 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 	productSvc := services.NewProductService(db)
 	orderSvc := services.NewOrderService(db, productSvc)
 	return &ServiceRegistry{
-		DB:                    db,
-		AuthService:           services.NewAuthService(db, redis),
-		AdminAuthService:      services.NewAdminAuthService(db, redis),
-		AdminContentService:   services.NewAdminContentService(db),
-		AdminAnalyticsService: services.NewAdminAnalyticsService(db, redis),
-		AdminUserService:      services.NewAdminUserService(db),
-		AdminCampaignService:  services.NewAdminCampaignService(db, notificationSvc),
-		AdminPaymentService:   services.NewAdminPaymentService(db),
-		BannerService:         services.NewBannerService(db),
-		UserService:           services.NewUserService(db),
-		ArService:             services.NewArService(db, productSvc, entitlementSvc),
-		CategoryService:       services.NewCategoryService(db),
-		DongengService:        services.NewDongengService(db, productSvc, entitlementSvc),
-		TracingService:        services.NewTracingService(db),
-		CountingService:       services.NewCountingService(db),
-		BadgeService:          services.NewBadgeService(db),
-		PaymentService:        services.NewPaymentService(db, entitlementSvc),
-		NotificationService:   notificationSvc,
-		GrowthService:         services.NewGrowthService(db),
-		PremiumPackService:    services.NewPremiumPackService(db, orderSvc),
-		ProductService:        productSvc,
-		EntitlementService:    entitlementSvc,
-		OrderService:          orderSvc,
-		FeatureFlagService:    services.NewFeatureFlagService(db),
+		DB:                     db,
+		AuthService:            services.NewAuthService(db, redis),
+		AdminAuthService:       services.NewAdminAuthService(db, redis),
+		AdminContentService:    services.NewAdminContentService(db),
+		AdminAnalyticsService:  services.NewAdminAnalyticsService(db, redis),
+		AdminUserService:       services.NewAdminUserService(db),
+		AdminCampaignService:   services.NewAdminCampaignService(db, notificationSvc),
+		AdminPaymentService:    services.NewAdminPaymentService(db),
+		BannerService:          services.NewBannerService(db),
+		UserService:            services.NewUserService(db),
+		ArService:              services.NewArService(db, productSvc, entitlementSvc),
+		CategoryService:        services.NewCategoryService(db),
+		DongengService:         services.NewDongengService(db, productSvc, entitlementSvc),
+		TracingService:         services.NewTracingService(db),
+		CountingService:        services.NewCountingService(db),
+		BadgeService:           services.NewBadgeService(db),
+		PaymentService:         services.NewPaymentService(db, entitlementSvc),
+		NotificationService:    notificationSvc,
+		GrowthService:          services.NewGrowthService(db),
+		PremiumPackService:     services.NewPremiumPackService(db, orderSvc),
+		ProductService:         productSvc,
+		EntitlementService:     entitlementSvc,
+		OrderService:           orderSvc,
+		FeatureFlagService:     services.NewFeatureFlagService(db),
+		AccountDeletionService: services.NewAccountDeletionService(db),
 	}
 }

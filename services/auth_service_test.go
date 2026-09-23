@@ -99,6 +99,34 @@ func TestValidateCredentials_UserNotFound(t *testing.T) {
 	assert.Nil(t, user)
 }
 
+// TestValidateCredentials_DeletedAccount tests that a soft-deleted account
+// (see AccountDeletionService) can never authenticate again, even with the
+// correct password.
+func TestValidateCredentials_DeletedAccount(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := NewAuthService(gormDB, nil)
+
+	hashedPwd, _ := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.MinCost)
+	parentID := uuid.New()
+	now := time.Now()
+
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "phone_number", "email_address", "password",
+		"address", "city", "created_at", "updated_at", "is_deleted",
+	}).AddRow(parentID, "Pengguna Terhapus", "", "deleted-abc@arunika.invalid", string(hashedPwd),
+		"", "", now, now, true)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE email_address = $1 ORDER BY "parents"."id" LIMIT $2`)).
+		WithArgs("deleted-abc@arunika.invalid", 1).
+		WillReturnRows(rows)
+
+	user, err := svc.ValidateCredentials("deleted-abc@arunika.invalid", "correctpassword")
+
+	assert.Error(t, err)
+	assert.Nil(t, user)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // refreshTokenRows builds the stored refresh token row a lookup returns.
 func refreshTokenRows(tokenID uuid.UUID, userID, token string, expiresAt time.Time) *sqlmock.Rows {
 	now := time.Now()
@@ -148,6 +176,35 @@ func TestRefreshSession_Valid(t *testing.T) {
 	assert.NotEmpty(t, accessToken)
 	assert.NotEmpty(t, newRefreshToken)
 	assert.NotEqual(t, tokenVal, newRefreshToken, "refresh token should be rotated")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestRefreshSession_DeletedAccount guards against a still-live refresh
+// token (e.g. one issued just before account deletion, on another device)
+// being used to mint a fresh access token after the account is gone.
+func TestRefreshSession_DeletedAccount(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := NewAuthService(gormDB, nil)
+
+	os.Setenv("JWT_SECRET", "test-secret-key-at-least-32-chars!!")
+	defer os.Unsetenv("JWT_SECRET")
+
+	userID := uuid.New()
+	tokenVal := uuid.New().String()
+
+	mock.ExpectQuery(regexp.QuoteMeta(refreshTokenLookupSQL)).
+		WithArgs(tokenVal, 1).
+		WillReturnRows(refreshTokenRows(uuid.New(), userID.String(), tokenVal, time.Now().Add(24*time.Hour)))
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE id = $1`)).
+		WithArgs(userID.String(), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email_address", "is_deleted"}).AddRow(userID, "user@example.com", true))
+
+	accessToken, newRefreshToken, err := svc.RefreshSession(tokenVal)
+
+	assert.ErrorIs(t, err, ErrRefreshTokenInvalid)
+	assert.Empty(t, accessToken)
+	assert.Empty(t, newRefreshToken)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

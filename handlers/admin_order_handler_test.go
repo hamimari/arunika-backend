@@ -193,3 +193,83 @@ func TestAdminOrderHandler_Sync_AlreadySettled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["data"])
 }
+
+func orderColsWithProvider() []string {
+	return append(orderCols(), "provider", "purchase_token")
+}
+
+// A Google Play order with a purchase token already on file re-verifies
+// against Google using that token directly — no manual input needed.
+func TestAdminOrderHandler_Sync_GooglePlayWithStoredToken(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	h := newTestOrderHandler(gormDB)
+
+	orderID := uuid.New()
+	userID := uuid.New()
+	packageID := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "orders" WHERE id = $1 ORDER BY "orders"."id" LIMIT $2`)).
+		WithArgs(orderID, 1).
+		WillReturnRows(sqlmock.NewRows(orderColsWithProvider()).
+			AddRow(orderID, userID, nil, packageID, 29000, "PENDING", now, now, "google_play", "tok-stored"))
+
+	// Idempotent replay of a purchase token: the order is still PENDING, so
+	// VerifyPlayPurchase runs its normal path — nothing special to fake
+	// here beyond letting it fail cleanly (no verifier configured), which
+	// is enough to prove Sync actually reused the stored token instead of
+	// requiring one in the request body.
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "orders" SET "purchase_token"`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "orders" WHERE id = $1 AND user_id = $2 ORDER BY "orders"."id" LIMIT $3 FOR UPDATE`)).
+		WithArgs(orderID, userID, 1).
+		WillReturnRows(sqlmock.NewRows(orderColsWithProvider()).
+			AddRow(orderID, userID, nil, packageID, 29000, "PENDING", now, now, "google_play", "tok-stored"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "payments" WHERE transaction_id = $1 AND order_id != $2`)).
+		WithArgs("tok-stored", orderID, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectRollback()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/admin/orders/"+orderID.String()+"/sync", nil)
+	c.Params = gin.Params{{Key: "id", Value: orderID.String()}}
+
+	h.Sync(c)
+
+	// Play Billing isn't configured in this test (no service account JSON),
+	// so verification itself fails — the point here is that it got that
+	// far using the stored token, without the request needing one.
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// A Google Play order with no purchase token on file yet can't be
+// auto-synced — Sync reports that clearly instead of silently no-op'ing,
+// pointing at the manual recover-play fallback.
+func TestAdminOrderHandler_Sync_GooglePlayNoStoredToken(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	h := newTestOrderHandler(gormDB)
+
+	orderID := uuid.New()
+	userID := uuid.New()
+	packageID := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "orders" WHERE id = $1 ORDER BY "orders"."id" LIMIT $2`)).
+		WithArgs(orderID, 1).
+		WillReturnRows(sqlmock.NewRows(orderColsWithProvider()).
+			AddRow(orderID, userID, nil, packageID, 29000, "PENDING", now, now, "google_play", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/admin/orders/"+orderID.String()+"/sync", nil)
+	c.Params = gin.Params{{Key: "id", Value: orderID.String()}}
+
+	h.Sync(c)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

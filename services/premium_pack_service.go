@@ -52,16 +52,17 @@ func (s *PremiumPackService) GetAllPacks() ([]models.PremiumPackage, error) {
 }
 
 type CreatePremiumPackInput struct {
-	Name         string  `json:"name"          binding:"required"`
-	Subtitle     string  `json:"subtitle"      binding:"required"`
-	Description  *string `json:"description"`
-	ImageURL     *string `json:"image_url"`
-	PriceIdr     int     `json:"price_idr" binding:"required,min=1"`
-	Type         string  `json:"type"          binding:"required,oneof=content subscription"`
-	BadgeLabel   *string `json:"badge_label"`
-	IsBestValue  bool    `json:"is_best_value"`
-	SortOrder    int     `json:"sort_order"`
-	DurationDays *int    `json:"duration_days"`
+	Name          string  `json:"name"          binding:"required"`
+	Subtitle      string  `json:"subtitle"      binding:"required"`
+	Description   *string `json:"description"`
+	ImageURL      *string `json:"image_url"`
+	PlayProductID *string `json:"play_product_id"`
+	PriceIdr      int     `json:"price_idr" binding:"required,min=1"`
+	Type          string  `json:"type"          binding:"required,oneof=content subscription"`
+	BadgeLabel    *string `json:"badge_label"`
+	IsBestValue   bool    `json:"is_best_value"`
+	SortOrder     int     `json:"sort_order"`
+	DurationDays  *int    `json:"duration_days"`
 }
 
 // validateDurationDays enforces that duration_days is set (and positive) for
@@ -82,33 +83,35 @@ func (s *PremiumPackService) CreatePack(input CreatePremiumPackInput) (*models.P
 		return nil, err
 	}
 	pack := models.PremiumPackage{
-		Name:         input.Name,
-		Subtitle:     input.Subtitle,
-		Description:  input.Description,
-		ImageURL:     input.ImageURL,
-		PriceIdr:     input.PriceIdr,
-		Type:         input.Type,
-		BadgeLabel:   input.BadgeLabel,
-		IsBestValue:  input.IsBestValue,
-		SortOrder:    input.SortOrder,
-		DurationDays: input.DurationDays,
-		IsActive:     true,
+		Name:          input.Name,
+		Subtitle:      input.Subtitle,
+		Description:   input.Description,
+		ImageURL:      input.ImageURL,
+		PlayProductID: input.PlayProductID,
+		PriceIdr:      input.PriceIdr,
+		Type:          input.Type,
+		BadgeLabel:    input.BadgeLabel,
+		IsBestValue:   input.IsBestValue,
+		SortOrder:     input.SortOrder,
+		DurationDays:  input.DurationDays,
+		IsActive:      true,
 	}
 	result := s.db.Create(&pack)
 	return &pack, result.Error
 }
 
 type UpdatePremiumPackInput struct {
-	Name         string  `json:"name"          binding:"required"`
-	Subtitle     string  `json:"subtitle"      binding:"required"`
-	Description  *string `json:"description"`
-	ImageURL     *string `json:"image_url"`
-	PriceIDR     int     `json:"price_idr"     binding:"required,min=1"`
-	Type         string  `json:"type"          binding:"required,oneof=content subscription"`
-	BadgeLabel   *string `json:"badge_label"`
-	IsBestValue  bool    `json:"is_best_value"`
-	SortOrder    int     `json:"sort_order"`
-	DurationDays *int    `json:"duration_days"`
+	Name          string  `json:"name"          binding:"required"`
+	Subtitle      string  `json:"subtitle"      binding:"required"`
+	Description   *string `json:"description"`
+	ImageURL      *string `json:"image_url"`
+	PlayProductID *string `json:"play_product_id"`
+	PriceIDR      int     `json:"price_idr"     binding:"required,min=1"`
+	Type          string  `json:"type"          binding:"required,oneof=content subscription"`
+	BadgeLabel    *string `json:"badge_label"`
+	IsBestValue   bool    `json:"is_best_value"`
+	SortOrder     int     `json:"sort_order"`
+	DurationDays  *int    `json:"duration_days"`
 }
 
 // UpdatePack updates an existing premium package. Returns nil if not found.
@@ -124,6 +127,7 @@ func (s *PremiumPackService) UpdatePack(id string, input UpdatePremiumPackInput)
 	pack.Subtitle = input.Subtitle
 	pack.Description = input.Description
 	pack.ImageURL = input.ImageURL
+	pack.PlayProductID = input.PlayProductID
 	pack.PriceIdr = input.PriceIDR
 	pack.Type = input.Type
 	pack.BadgeLabel = input.BadgeLabel
@@ -157,6 +161,10 @@ func (s *PremiumPackService) ToggleVisibility(id string, isActive bool) (*models
 
 func (s *PremiumPackService) GetByName(name string) (*models.PremiumPackage, error) {
 	return models.FindPremiumPackageByName(s.db, name)
+}
+
+func (s *PremiumPackService) GetByID(id string) (*models.PremiumPackage, error) {
+	return models.FindPremiumPackageByID(s.db, id)
 }
 
 // ListItems returns every product bundled in a package.

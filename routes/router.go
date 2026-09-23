@@ -59,12 +59,13 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	// path as the POST above, different HTTP method, no conflict.
 	r.GET("/reset-password", authHandler.ResetPasswordPage)
 
-	userHandler := handlers.NewUserHandler(reg.UserService)
+	userHandler := handlers.NewUserHandler(reg.UserService, reg.AccountDeletionService, reg.AuthService)
 	user := r.Group("/user")
 	user.Use(middlewares.JWTAuthMiddleware(rdb))
 	{
 		user.GET("/:id", userHandler.GetUserByID)
 		user.PUT("", userHandler.UpdateUser)
+		user.DELETE("/me", userHandler.DeleteAccount)
 	}
 
 	arHandler := handlers.NewArHandler(reg.ArService)
@@ -112,12 +113,17 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 
 	// ── Payment ──────────────────────────────────────────────────────────────
 	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService, reg.PremiumPackService, reg.UserService, reg.ProductService)
-	r.POST("/payment/webhook", paymentHandler.Webhook) // no JWT — called by Midtrans
+	r.POST("/payment/webhook", paymentHandler.Webhook)    // no JWT — called by Midtrans
+	r.POST("/payment/play/rtdn", paymentHandler.PlayRTDN) // no JWT — called by Google Cloud Pub/Sub
 	payment := r.Group("/payment")
 	payment.Use(middlewares.JWTAuthMiddleware(rdb))
 	{
 		payment.POST("/create", paymentHandler.CreateTransaction)
 		payment.POST("/create-product", paymentHandler.CreateProductTransaction)
+		payment.POST("/play/create", paymentHandler.CreatePlayOrder)
+		payment.POST("/play/create-product", paymentHandler.CreatePlayProductOrder)
+		payment.POST("/play/verify", paymentHandler.VerifyPlayPurchase)
+		payment.POST("/play/report-external", paymentHandler.ReportExternalTransaction)
 	}
 
 	// ── Orders ───────────────────────────────────────────────────────────────
@@ -200,6 +206,8 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.PATCH("/products/:id/active", adminProductHandler.ToggleActive)
 		admin.GET("/orders", adminOrderHandler.List)
 		admin.POST("/orders/:id/sync", adminOrderHandler.Sync)
+		admin.POST("/orders/:id/recover-play", adminOrderHandler.RecoverPlayPurchase)
+		admin.POST("/orders/reconcile-play", adminOrderHandler.ReconcilePlayPurchases)
 
 		// Users
 		admin.GET("/users", adminUserHandler.ListUsers)

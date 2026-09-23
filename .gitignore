@@ -32,3 +32,6 @@ pgdata/
 
 # Flyway local config (may contain credentials)
 flyway.conf
+
+# Local debug output from ad-hoc `go run main.go | tee` sessions
+*.log

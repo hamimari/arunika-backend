@@ -100,6 +100,9 @@ func (s *AuthService) RefreshSession(refreshToken string) (string, string, error
 		}
 		return "", "", err
 	}
+	if user.IsDeleted {
+		return "", "", ErrRefreshTokenInvalid
+	}
 
 	accessToken, newRefreshToken, err := s.issueTokens(stored.UserId, user.EmailAddress)
 	if err != nil {
@@ -168,7 +171,7 @@ func (s *AuthService) SendOtp(request models.Parent) (models.Parent, error) {
 
 func (s *AuthService) ValidateCredentials(email string, password string) (*models.Parent, error) {
 	user, _ := models.FindUserByEmail(s.db, email)
-	if user == nil || !models.CheckPassword(user.Password, password) {
+	if user == nil || user.IsDeleted || !models.CheckPassword(user.Password, password) {
 		return nil, errors.New("invalid credential")
 	}
 	return user, nil
@@ -180,6 +183,13 @@ func (s *AuthService) Logout(ctx *gin.Context, token string, jti string, exp tim
 		return errors.New("token not found")
 	}
 
+	return s.RevokeToken(ctx, jti, exp)
+}
+
+// RevokeToken blacklists jti until exp, without requiring a specific
+// refresh token row to exist — used by account deletion, which already
+// removes every refresh token for the user in bulk.
+func (s *AuthService) RevokeToken(ctx *gin.Context, jti string, exp time.Time) error {
 	ttl := time.Until(exp)
 	if ttl <= 0 {
 		ttl = time.Minute * 15

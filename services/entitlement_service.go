@@ -137,3 +137,60 @@ func (s *EntitlementService) hasActiveSubscription(userID uuid.UUID) (bool, erro
 	}
 	return sub.Status == "premium" && (sub.ExpiresAt == nil || sub.ExpiresAt.After(time.Now())), nil
 }
+
+// SyncSubscriptionExpiry sets a user's subscription expiry to exactly what
+// Google Play reports (rather than extending by a duration, as a fresh
+// purchase does), since Play is the source of truth once a subscription is
+// under Play Billing management — used to reconcile Real-time Developer
+// Notifications (renewal, recovery, restart) after the initial purchase.
+//
+// tx must be the caller's transaction whenever one is open: user_id is
+// UNIQUE, so running this on a separate connection while an uncommitted
+// upsertSubscription insert holds that index deadlocks — this blocks on the
+// index, and the transaction holding it blocks on this returning.
+func (s *EntitlementService) SyncSubscriptionExpiry(tx *gorm.DB, userID, packageID uuid.UUID, expiresAt time.Time) error {
+	var sub models.UserSubscription
+	err := tx.Where("user_id = ?", userID).First(&sub).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			sub = models.UserSubscription{
+				UserID:    userID,
+				PackageID: &packageID,
+			}
+			sub.Status = "premium"
+			sub.ExpiresAt = &expiresAt
+			now := time.Now()
+			sub.StartDate = &now
+			return tx.Create(&sub).Error
+		}
+		return err
+	}
+	return tx.Model(&sub).Updates(map[string]interface{}{
+		"status":     "premium",
+		"expires_at": expiresAt,
+		"package_id": packageID,
+	}).Error
+}
+
+// RevokeSubscription immediately ends a user's subscription access — used
+// when Google Play reports a revocation or refund (as opposed to a
+// cancellation, which just turns off auto-renew and lets the current period
+// run out naturally).
+func (s *EntitlementService) RevokeSubscription(userID uuid.UUID) error {
+	return s.db.Model(&models.UserSubscription{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]interface{}{
+			"status":     "revoked",
+			"expires_at": time.Now(),
+		}).Error
+}
+
+// RevokeEntitlementForOrder immediately ends any content-pack/product
+// entitlements granted by orderID — used when Google Play reports the
+// purchase behind that order as voided (refund, chargeback, or Google's own
+// automatic refund of a purchase left unacknowledged for 3 days).
+func (s *EntitlementService) RevokeEntitlementForOrder(orderID uuid.UUID) error {
+	return s.db.Model(&models.UserEntitlement{}).
+		Where("source_order_id = ?", orderID).
+		Update("expires_at", time.Now()).Error
+}

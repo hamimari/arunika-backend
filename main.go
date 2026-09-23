@@ -4,6 +4,7 @@ import (
 	"arunika_backend/config"
 	"arunika_backend/registry"
 	"arunika_backend/routes"
+	"arunika_backend/services"
 	"context"
 	"errors"
 	"log"
@@ -38,8 +39,10 @@ func main() {
 	db := config.DB
 	rdb := config.RDB
 
-	services := registry.NewServiceRegistry(db, rdb)
-	r := routes.SetupRouter(services, rdb, db)
+	svcRegistry := registry.NewServiceRegistry(db, rdb)
+	r := routes.SetupRouter(svcRegistry, rdb, db)
+
+	startPlayPurchaseReconciliation(svcRegistry.PaymentService)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -84,6 +87,37 @@ func main() {
 	}
 
 	log.Println("server stopped")
+}
+
+// startPlayPurchaseReconciliation periodically polls Google Play's Voided
+// Purchases API and revokes entitlement for any order whose purchase
+// Google has since refunded/canceled/charged-back — including its own
+// automatic refund of a Play Billing purchase left unacknowledged for 3
+// days, which RTDN isn't guaranteed to report on its own. No-ops when
+// Play Billing isn't configured. See services.PaymentService.ReconcileVoidedPurchases.
+func startPlayPurchaseReconciliation(ps *services.PaymentService) {
+	if os.Getenv("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON") == "" {
+		return
+	}
+	const interval = 6 * time.Hour
+	const lookback = 3 * 24 * time.Hour // covers the 3-day auto-refund window plus slack
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			count, err := ps.ReconcileVoidedPurchases(ctx, time.Now().Add(-lookback))
+			cancel()
+			if err != nil {
+				slog.Error("play purchase reconciliation failed", "error", err)
+				continue
+			}
+			if count > 0 {
+				slog.Info("play purchase reconciliation completed", "reconciled", count)
+			}
+		}
+	}()
 }
 
 // validateEnv checks that all required environment variables are present and
