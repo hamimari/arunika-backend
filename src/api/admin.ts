@@ -72,6 +72,7 @@ export interface PremiumPackage {
   subtitle: string;
   description: string | null;
   image_url: string | null;
+  play_product_id: string | null;
   price_idr: number;
   type: 'content' | 'subscription';
   badge_label: string;
@@ -155,7 +156,9 @@ export interface Order {
   package_id: string | null;
   package_name: string | null;
   amount_idr: number;
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED';
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED';
+  provider: 'midtrans' | 'google_play';
+  has_purchase_token: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -167,4 +170,15 @@ export const ordersApi = {
   }> => api.get('/admin/orders', { params }).then((r) => r.data),
   sync: (id: string): Promise<{ data: Order }> =>
     api.post(`/admin/orders/${id}/sync`).then((r) => r.data),
+  // Manually settles a Google Play purchase against a purchase token
+  // obtained out-of-band (e.g. from a support case) — for an order stuck
+  // PENDING because the app never called verify.
+  recoverPlay: (id: string, purchaseToken: string): Promise<{ data: Order }> =>
+    api.post(`/admin/orders/${id}/recover-play`, { purchase_token: purchaseToken }).then((r) => r.data),
+  // Polls Google Play's Voided Purchases API and revokes entitlement for
+  // any PAID order since refunded/canceled/charged-back, including
+  // Google's own automatic refund of a purchase left unacknowledged for 3
+  // days. Also runs automatically every 6h on the backend.
+  reconcilePlay: (): Promise<{ data: { reconciled: number } }> =>
+    api.post('/admin/orders/reconcile-play').then((r) => r.data),
 };

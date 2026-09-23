@@ -9,11 +9,23 @@ import type { ColumnsType } from 'antd/es/table';
 const { Text, Link } = Typography;
 const { Search } = Input;
 
+// Surfaces the backend's own {"error": "..."} message when there is one
+// (e.g. "purchase is not valid") instead of a generic string that hides why
+// the action actually failed.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  const detail =
+    err && typeof err === 'object' && 'response' in err
+      ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+      : undefined;
+  return detail ?? fallback;
+}
+
 const STATUS_COLORS: Record<Order['status'], string> = {
   PENDING: 'orange',
   PAID: 'green',
   FAILED: 'red',
   EXPIRED: 'default',
+  REFUNDED: 'volcano',
 };
 
 export default function OrdersPage() {
@@ -22,6 +34,7 @@ export default function OrdersPage() {
   const [page, setPage] = useState(1);
   const [userModalId, setUserModalId] = useState<string | null>(null);
   const [itemModalOrder, setItemModalOrder] = useState<Order | null>(null);
+  const [recoverPlayOrder, setRecoverPlayOrder] = useState<Order | null>(null);
   const perPage = 20;
   const queryClient = useQueryClient();
 
@@ -35,10 +48,19 @@ export default function OrdersPage() {
   const syncMutation = useMutation({
     mutationFn: (id: string) => ordersApi.sync(id),
     onSuccess: () => {
-      message.success('Order status synced with Midtrans');
+      message.success('Order status synced');
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
-    onError: () => message.error('Failed to sync with Midtrans'),
+    onError: (err: unknown) => message.error(extractErrorMessage(err, 'Failed to sync order')),
+  });
+
+  const reconcilePlayMutation = useMutation({
+    mutationFn: () => ordersApi.reconcilePlay(),
+    onSuccess: ({ data }) => {
+      message.success(`Checked Google Play for refunds — ${data.reconciled} order(s) revoked`);
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+    onError: (err: unknown) => message.error(extractErrorMessage(err, 'Failed to reconcile with Google Play')),
   });
 
   const orders = data?.data ?? [];
@@ -94,6 +116,14 @@ export default function OrdersPage() {
       render: (v: Order['status']) => <Tag color={STATUS_COLORS[v] ?? 'default'}>{v}</Tag>,
     },
     {
+      title: 'Provider',
+      dataIndex: 'provider',
+      key: 'provider',
+      render: (v: Order['provider']) => (
+        <Tag color={v === 'google_play' ? 'blue' : 'purple'}>{v === 'google_play' ? 'Google Play' : 'Midtrans'}</Tag>
+      ),
+    },
+    {
       title: 'Created',
       dataIndex: 'created_at',
       key: 'created_at',
@@ -102,17 +132,31 @@ export default function OrdersPage() {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_: unknown, record: Order) => (
-        <Button
-          size="small"
-          icon={<SyncOutlined />}
-          loading={syncMutation.isPending && syncMutation.variables === record.id}
-          disabled={record.status !== 'PENDING'}
-          onClick={() => syncMutation.mutate(record.id)}
-        >
-          Sync Midtrans
-        </Button>
-      ),
+      render: (_: unknown, record: Order) => {
+        if (record.status !== 'PENDING') return null;
+
+        // One action per record, driven by which payment rail the order
+        // was created against — a Play order with a token already on file
+        // syncs in one click just like Midtrans; only a Play order with no
+        // token yet needs an admin to supply one.
+        if (record.provider === 'google_play' && !record.has_purchase_token) {
+          return (
+            <Button size="small" onClick={() => setRecoverPlayOrder(record)}>
+              Recover Play
+            </Button>
+          );
+        }
+        return (
+          <Button
+            size="small"
+            icon={<SyncOutlined />}
+            loading={syncMutation.isPending && syncMutation.variables === record.id}
+            onClick={() => syncMutation.mutate(record.id)}
+          >
+            {record.provider === 'google_play' ? 'Sync Google Play' : 'Sync Midtrans'}
+          </Button>
+        );
+      },
     },
   ];
 
@@ -137,8 +181,16 @@ export default function OrdersPage() {
             { value: 'PAID', label: 'Paid' },
             { value: 'FAILED', label: 'Failed' },
             { value: 'EXPIRED', label: 'Expired' },
+            { value: 'REFUNDED', label: 'Refunded' },
           ]}
         />
+        <Button
+          icon={<SyncOutlined />}
+          loading={reconcilePlayMutation.isPending}
+          onClick={() => reconcilePlayMutation.mutate()}
+        >
+          Check Google Play Refunds
+        </Button>
       </Space>
       <Table<Order>
         rowKey="id"
@@ -161,7 +213,53 @@ export default function OrdersPage() {
       {itemModalOrder && (
         <ItemDetailModal order={itemModalOrder} onClose={() => setItemModalOrder(null)} />
       )}
+      {recoverPlayOrder && (
+        <RecoverPlayModal order={recoverPlayOrder} onClose={() => setRecoverPlayOrder(null)} />
+      )}
     </>
+  );
+}
+
+// Manually settles a Google Play purchase stuck PENDING because the app
+// never called verify — an admin supplies the purchase token obtained
+// out-of-band (e.g. a support case), and this reuses the same verify path
+// a normal purchase completes through.
+function RecoverPlayModal({ order, onClose }: { order: Order; onClose: () => void }) {
+  const [purchaseToken, setPurchaseToken] = useState('');
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () => ordersApi.recoverPlay(order.id, purchaseToken.trim()),
+    onSuccess: () => {
+      message.success('Purchase verified and entitlement granted');
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      onClose();
+    },
+    onError: (err: unknown) => message.error(extractErrorMessage(err, 'Failed to verify purchase')),
+  });
+
+  return (
+    <Modal
+      title="Recover Google Play Purchase"
+      open
+      onCancel={onClose}
+      onOk={() => mutation.mutate()}
+      okButtonProps={{ disabled: !purchaseToken.trim(), loading: mutation.isPending }}
+      okText="Verify & Grant"
+    >
+      <Text type="secondary">
+        Order {order.id.slice(0, 8)}… for {order.package_name ?? order.package_id}. Paste the Google Play purchase
+        token for this order (from Play Console's order management, a support case, or app logs) — this re-runs the
+        same verification a normal purchase completes through.
+      </Text>
+      <Input.TextArea
+        style={{ marginTop: 12 }}
+        rows={3}
+        placeholder="Purchase token"
+        value={purchaseToken}
+        onChange={(e) => setPurchaseToken(e.target.value)}
+      />
+    </Modal>
   );
 }
 

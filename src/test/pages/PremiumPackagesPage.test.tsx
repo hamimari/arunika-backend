@@ -28,6 +28,7 @@ const samplePack = {
   subtitle: '8 Hewan Hutan + 2 Dongeng',
   description: 'Paket lengkap 8 hewan hutan beserta 2 dongeng terkait.',
   image_url: 'https://example.com/paket-hutan.jpg',
+  play_product_id: 'pack_hutan_bundle',
   price_idr: 29000,
   type: 'content',
   badge_label: '',
@@ -136,5 +137,58 @@ describe('PremiumPackagesPage', () => {
     const modal = await screen.findByRole('dialog');
     expect(within(modal).getByLabelText('Description')).toHaveValue(samplePack.description);
     expect(within(modal).getByLabelText('Image URL')).toHaveValue(samplePack.image_url);
+  });
+
+  it('shows a Mapped/Unmapped Play Billing status in the table', async () => {
+    const unmapped = { ...samplePack, id: 'pkg-2', name: 'Paket Laut', play_product_id: null };
+    mock.onGet('/admin/premium/packs').reply(200, { data: [samplePack, unmapped] });
+
+    renderPage();
+
+    await screen.findByText('Paket Hutan');
+    expect(screen.getByText('Mapped')).toBeInTheDocument();
+    expect(screen.getByText('Unmapped')).toBeInTheDocument();
+  });
+
+  it('creates a new package with a Play Product ID', async () => {
+    mock.onGet('/admin/premium/packs').reply(200, { data: [] });
+    mock.onPost('/admin/premium/packs').reply(201, {
+      data: { ...samplePack, id: 'new-pkg', name: 'Paket Baru' },
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole('button', { name: /add package/i });
+    await user.click(screen.getByRole('button', { name: /add package/i }));
+
+    const modal = await screen.findByRole('dialog');
+    await user.type(within(modal).getByLabelText('Name'), 'Paket Baru');
+    await user.type(within(modal).getByLabelText('Subtitle'), 'Deskripsi baru');
+    await user.type(within(modal).getByLabelText('Play Product ID'), 'pack_baru_bundle');
+    await user.type(within(modal).getByLabelText('Price (IDR)'), '15000');
+
+    await user.click(within(modal).getByLabelText('Type'));
+    const contentOption = await screen.findByTitle('Content');
+    await user.click(contentOption);
+
+    await user.click(within(modal).getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mock.history.post.length).toBe(1));
+    const body = JSON.parse(mock.history.post[0].data as string);
+    expect(body).toMatchObject({ play_product_id: 'pack_baru_bundle' });
+  });
+
+  it('pre-fills the Play Product ID when editing', async () => {
+    mock.onGet('/admin/premium/packs').reply(200, { data: [samplePack] });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Paket Hutan');
+    await user.click(screen.getByRole('button', { name: /edit/i }));
+
+    const modal = await screen.findByRole('dialog');
+    expect(within(modal).getByLabelText('Play Product ID')).toHaveValue(samplePack.play_product_id);
   });
 });

@@ -141,6 +141,13 @@ export default function PremiumPackagesPage() {
       key: 'duration_days',
       render: (v: number | null) => (v ? `${v} days` : '—'),
     },
+    {
+      title: 'Play Billing',
+      dataIndex: 'play_product_id',
+      key: 'play_product_id',
+      render: (v: string | null) =>
+        v ? <Tag color="green">Mapped</Tag> : <Tag color="default">Unmapped</Tag>,
+    },
     { title: 'Badge', dataIndex: 'badge_label', key: 'badge_label' },
     {
       title: 'Best Value',
@@ -253,6 +260,13 @@ export default function PremiumPackagesPage() {
           </Form.Item>
           <Form.Item name="image_url" label="Image URL">
             <Input placeholder="https://... (sample image for the landing page)" />
+          </Form.Item>
+          <Form.Item
+            name="play_product_id"
+            label="Play Product ID"
+            extra="Google Play Console in-app product/subscription SKU. Leave blank to keep this package unavailable via Google Play Billing."
+          >
+            <Input placeholder="e.g. pack_dongeng_bundle_1" />
           </Form.Item>
           <Form.Item
             name="price_idr"
