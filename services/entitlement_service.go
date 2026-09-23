@@ -177,10 +177,21 @@ func (s *EntitlementService) SyncSubscriptionExpiry(tx *gorm.DB, userID, package
 // cancellation, which just turns off auto-renew and lets the current period
 // run out naturally).
 func (s *EntitlementService) RevokeSubscription(userID uuid.UUID) error {
+	// Writes 'free', not 'revoked'. user_subscriptions carries
+	// CHECK (status IN ('free','premium')), so the previous 'revoked' value
+	// failed with SQLSTATE 23514 every time — meaning refunds and Play
+	// revocations silently left the user premium. The sqlmock test covering
+	// this passed because a mocked driver does not enforce CHECK constraints.
+	//
+	// Nothing ever read status='revoked' (it was write-only), and the refund
+	// audit trail lives on orders.status='REFUNDED' and the payments table,
+	// which is where it belongs. Setting expires_at to now preserves the
+	// documented behaviour that revocation ends access immediately, rather
+	// than letting the paid period run out as a cancellation would.
 	return s.db.Model(&models.UserSubscription{}).
 		Where("user_id = ?", userID).
 		Updates(map[string]interface{}{
-			"status":     "revoked",
+			"status":     "free",
 			"expires_at": time.Now(),
 		}).Error
 }

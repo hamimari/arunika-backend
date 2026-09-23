@@ -173,7 +173,7 @@ func fetchImageBytes(url string) []byte {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(resp.Body)

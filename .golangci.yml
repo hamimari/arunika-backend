@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+
+  enable:
+    - bodyclose
+    - rowserrcheck
+
+  # errcheck and staticcheck were briefly disabled while Phase 1 got CI
+  # running on the codebase as it stood. All 12 pre-existing findings have
+  # since been cleared, so both are back on and the gate is fully strict.
+
+  exclusions:
+    rules:
+      # Tests assert via testify rather than checking every return; requiring
+      # an explicit check on each one adds noise without adding safety.
+      # Without this rule errcheck reports 13 findings in _test.go files.
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt

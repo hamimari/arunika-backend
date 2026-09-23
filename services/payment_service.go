@@ -146,7 +146,7 @@ func (s *PaymentService) createOrderAndSnapTransaction(user *models.Parent, amou
 	if err != nil {
 		return nil, fmt.Errorf("midtrans request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -336,7 +336,7 @@ func (s *PaymentService) SyncOrderStatus(order *models.Order) *models.Order {
 		slog.Warn("SyncOrderStatus: midtrans status request failed", "order_id", order.ID, "error", err)
 		return order
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return order

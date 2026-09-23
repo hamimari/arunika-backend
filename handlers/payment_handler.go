@@ -19,6 +19,20 @@ type PaymentHandler struct {
 	productService      *services.ProductService
 }
 
+// sendNotificationAsync dispatches a push notification without blocking the
+// response. Delivery is best-effort by design — a push failure must never
+// fail a payment that has already settled — but the error is logged rather
+// than discarded, so a broken push pipeline shows up in the logs instead of
+// silently dropping every payment notification.
+func (h *PaymentHandler) sendNotificationAsync(userID uuid.UUID, title, body, notifType string) {
+	go func() {
+		if err := h.notificationService.Send(userID, title, body, notifType); err != nil {
+			slog.Error("failed to send payment notification",
+				"user_id", userID, "type", notifType, "title", title, "error", err)
+		}
+	}()
+}
+
 type CreatePaymentRequest struct {
 	PlanName string `json:"plan_name" binding:"required"`
 	Amount   int64  `json:"amount" binding:"required"`
@@ -289,7 +303,7 @@ func (h *PaymentHandler) VerifyPlayPurchase(c *gin.Context) {
 	}
 
 	if order.Status == "PAID" {
-		go h.notificationService.Send(userID, "Pembayaran Berhasil", "Selamat! Akun kamu sudah aktif Premium.", "payment")
+		h.sendNotificationAsync(userID, "Pembayaran Berhasil", "Selamat! Akun kamu sudah aktif Premium.", "payment")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": order})
@@ -386,9 +400,9 @@ func (h *PaymentHandler) Webhook(c *gin.Context) {
 	if userID != uuid.Nil {
 		switch notif.TransactionStatus {
 		case "settlement", "capture":
-			go h.notificationService.Send(userID, "Pembayaran Berhasil", "Selamat! Akun kamu sudah aktif Premium.", "payment")
+			h.sendNotificationAsync(userID, "Pembayaran Berhasil", "Selamat! Akun kamu sudah aktif Premium.", "payment")
 		case "deny", "expire", "cancel":
-			go h.notificationService.Send(userID, "Pembayaran Gagal", "Maaf, pembayaran kamu tidak berhasil. Silakan coba lagi.", "payment")
+			h.sendNotificationAsync(userID, "Pembayaran Gagal", "Maaf, pembayaran kamu tidak berhasil. Silakan coba lagi.", "payment")
 		}
 	}
 

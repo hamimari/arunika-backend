@@ -600,8 +600,10 @@ func TestForgotPassword_KnownEmail_InvalidatesOldTokensAndCreatesNewOne(t *testi
 		WithArgs("known@example.com", 1).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "phone_number", "email_address", "password",
-			"address", "city", "created_at", "updated_at", "is_deleted",
-		}).AddRow(userID, "Known User", "081", "known@example.com", "hash", "Jl.", "Jakarta", now, now, false))
+			"address", "city", "created_at", "updated_at", "is_deleted", "email_verified",
+			// email_verified must be true: ForgotPassword withholds the reset
+			// link from unverified addresses.
+		}).AddRow(userID, "Known User", "081", "known@example.com", "hash", "Jl.", "Jakarta", now, now, false, true))
 
 	// Old, still-valid tokens for this user are invalidated first.
 	mock.ExpectBegin()
@@ -638,8 +640,10 @@ func TestForgotPassword_OldTokenInvalidationFailure_IsReturned(t *testing.T) {
 		WithArgs("known@example.com", 1).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "phone_number", "email_address", "password",
-			"address", "city", "created_at", "updated_at", "is_deleted",
-		}).AddRow(userID, "Known User", "081", "known@example.com", "hash", "Jl.", "Jakarta", now, now, false))
+			"address", "city", "created_at", "updated_at", "is_deleted", "email_verified",
+			// email_verified must be true: ForgotPassword withholds the reset
+			// link from unverified addresses.
+		}).AddRow(userID, "Known User", "081", "known@example.com", "hash", "Jl.", "Jakarta", now, now, false, true))
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "password_reset_tokens" WHERE user_id = $1`)).

@@ -42,7 +42,6 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/signup", authHandler.SignUp)
 		auth.GET("/check-availability", authHandler.CheckAvailability)
-		auth.POST("/send-otp", authHandler.SendOtp)
 		// No JWT middleware: an expired access token is exactly when a
 		// refresh is needed, and the refresh token in the body is the
 		// credential. Rate-limited so the endpoint can't be used to probe
@@ -52,6 +51,15 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		// refreshes at most once per access-token lifetime (15 minutes).
 		auth.POST("/refresh-token", middlewares.RateLimitMiddleware(rdb, "refresh-token", 120, 15*time.Minute), authHandler.RefreshToken)
 		auth.POST("/logout", middlewares.JWTAuthMiddleware(rdb), authHandler.Logout)
+		// Opened from a mail client, so no auth: the token in the query
+		// string is the credential. Renders an HTML confirmation page.
+		auth.GET("/verify-email", authHandler.VerifyEmail)
+		// Rate-limited to match forgot-password: without a limit this is a
+		// mail-bombing primitive aimed at the signed-in user's address.
+		auth.POST("/resend-verification",
+			middlewares.JWTAuthMiddleware(rdb),
+			middlewares.RateLimitMiddleware(rdb, "resend-verification", 5, 15*time.Minute),
+			authHandler.ResendVerification)
 	}
 	r.POST("/forgot-password", middlewares.RateLimitMiddleware(rdb, "forgot-password", 5, 15*time.Minute), authHandler.ForgotPassword)
 	r.POST("/reset-password", middlewares.RateLimitMiddleware(rdb, "reset-password", 10, 15*time.Minute), authHandler.ResetPassword)

@@ -18,10 +18,13 @@ arunika_backend
 *.out
 
 # Go test cache & coverage
+# (coverage-baseline.json IS committed — it is the ratchet baseline)
 *.test
 *.prof
 coverage.out
 coverage.html
+cover.out
+reports/
 
 # OS generated files
 .DS_Store

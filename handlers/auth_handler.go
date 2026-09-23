@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"errors"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -86,6 +88,31 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
+// sendVerificationEmailAsync issues a verification token and emails it
+// without blocking the response.
+//
+// Registration must never fail because mail delivery did. SMTP is a
+// third-party dependency that fails independently of Arunika, and this
+// codebase has already shipped a bug where every password-reset email failed
+// silently because the sending path read an env var set nowhere. Putting
+// that class of failure on the critical path of account creation would turn
+// a mail outage into a signup outage — so the error is logged with the
+// user's id and goes no further. The user can resend from the app.
+func (h *AuthHandler) sendVerificationEmailAsync(userID uuid.UUID, email, name string) {
+	go func() {
+		rawToken, err := h.service.IssueEmailVerificationToken(userID)
+		if err != nil {
+			slog.Error("could not issue email verification token",
+				"user_id", userID, "error", err)
+			return
+		}
+		if err := services.SendVerificationEmail(email, name, rawToken); err != nil {
+			slog.Error("could not send verification email",
+				"user_id", userID, "error", err)
+		}
+	}()
+}
+
 func (h *AuthHandler) SignUp(c *gin.Context) {
 	var req SignUpRequest
 	body, _ := io.ReadAll(c.Request.Body)
@@ -134,6 +161,7 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		return
 	}
 	slog.Info("signup success", "user_id", user.ID)
+	h.sendVerificationEmailAsync(user.ID, user.EmailAddress, user.Name)
 	responseChildren := make([]Child, len(children))
 	for i, child := range children {
 		responseChildren[i] = Child{
@@ -143,6 +171,24 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		}
 	}
 	token, refreshToken, err := h.service.GenerateJwtToken(user.ID.String(), user.EmailAddress)
+	if err != nil {
+		// The account is created and committed by this point, so this is not a
+		// signup failure — only the session could not be issued. Say that
+		// explicitly: the user's credentials are valid and signing in will
+		// work, so "please sign in" is the one actionable instruction.
+		//
+		// Previously this error was discarded and the handler returned 201
+		// with empty token/refresh_token. The app refuses to proceed on an
+		// empty token (signup_bloc.dart), so the user saw a generic failure
+		// for an account that had in fact been created — and retrying hit
+		// "email address already taken". Nothing reached the logs either.
+		slog.Error("signup succeeded but token generation failed",
+			"user_id", user.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Account created, but the session could not be started. Please sign in.",
+		})
+		return
+	}
 	response := SignUpResponse{
 		Name:         user.Name,
 		PhoneNumber:  user.PhoneNumber,
@@ -172,24 +218,6 @@ func (h *AuthHandler) CheckAvailability(c *gin.Context) {
 		"email_taken": emailTaken,
 		"phone_taken": phoneTaken,
 	})
-}
-
-func (h *AuthHandler) SendOtp(c *gin.Context) {
-	var req models.Parent
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
-		return
-	}
-
-	_, err := h.service.SendOtp(req)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":    "OTP sent successfully to your email address.",
-		"expires_in": 300})
 }
 
 // RefreshToken exchanges a refresh token for a new token pair. It is
@@ -288,4 +316,82 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful"})
+}
+
+// ─── Email verification ───────────────────────────────────────────────────────
+
+// verificationPageData fills templates/email_verified.html. Status is one of
+// "verified", "already" or "invalid". The token is deliberately absent — it
+// must never be rendered into the page.
+type verificationPageData struct {
+	Status string
+	Name   string
+}
+
+// VerifyEmail handles GET /auth/verify-email?token=.
+//
+// It renders an HTML page rather than returning JSON because the link is
+// opened from a mail client, potentially on a different device from the app.
+// A server-rendered page works everywhere with no deep-link plumbing.
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	tmpl, err := template.ParseFiles("templates/email_verified.html")
+	if err != nil {
+		slog.Error("could not parse verification page template", "error", err)
+		c.String(http.StatusInternalServerError, "Verification page unavailable")
+		return
+	}
+
+	render := func(status, name string) {
+		c.Status(http.StatusOK)
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		// Belt and braces alongside the page's own meta referrer tag.
+		c.Header("Referrer-Policy", "no-referrer")
+		if err := tmpl.Execute(c.Writer, verificationPageData{Status: status, Name: name}); err != nil {
+			slog.Error("could not render verification page", "error", err)
+		}
+	}
+
+	token := c.Query("token")
+	name, err := h.service.ConsumeEmailVerificationTokenForPage(token)
+	switch {
+	case err == nil:
+		render("verified", name)
+	case errors.Is(err, services.ErrEmailAlreadyVerified):
+		render("already", name)
+	default:
+		// Unknown, expired and already-consumed tokens are deliberately
+		// indistinguishable — the user-facing remedy is the same, and
+		// separating them would let someone probe which tokens once existed.
+		render("invalid", "")
+	}
+}
+
+// ResendVerification handles POST /auth/resend-verification for the signed-in
+// user. Rate limiting is applied by middleware at the route.
+func (h *AuthHandler) ResendVerification(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID, err := uuid.Parse(userIDVal.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	err = h.service.ResendVerificationEmail(userID)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"message": "Verification email sent."})
+	case errors.Is(err, services.ErrEmailAlreadyVerified):
+		// Nothing to do is a success, not an error — the caller's goal
+		// (a verified address) is already met.
+		c.JSON(http.StatusOK, gin.H{"message": "Email is already verified."})
+	default:
+		slog.Error("could not resend verification email", "user_id", userID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Could not send the verification email. Please try again later.",
+		})
+	}
 }

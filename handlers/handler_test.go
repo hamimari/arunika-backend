@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"arunika_backend/models"
 	"arunika_backend/services"
 )
 
@@ -1227,4 +1228,200 @@ func TestBannerHandler_ToggleVisibility_Success(t *testing.T) {
 	h.ToggleVisibility(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// Regression: signup used to discard the error from GenerateJwtToken and
+// return 201 with empty token/refresh_token. The app refuses to proceed on an
+// empty token, so the user saw a generic failure for an account that had in
+// fact been created, and retrying hit "email address already taken" — with
+// nothing in the logs to explain it.
+func TestAuthHandler_SignUp_TokenGenerationFails_Returns500(t *testing.T) {
+	// GenerateJWT reads JWT_SECRET at call time and errors when it is empty,
+	// which fails token issuance without needing the account insert to fail.
+	t.Setenv("JWT_SECRET", "")
+
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	parentCols := []string{
+		"id", "name", "phone_number", "email_address", "password",
+		"address", "city", "created_at", "updated_at", "is_deleted",
+	}
+	// Email not taken.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE email_address = $1`)).
+		WillReturnRows(sqlmock.NewRows(parentCols))
+	// Phone not taken.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE phone_number = $1`)).
+		WillReturnRows(sqlmock.NewRows(parentCols))
+	// The account itself is created successfully — that is the whole point.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "parents"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "children"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+
+	body := `{
+		"name": "New User",
+		"phone_number": "081",
+		"email_address": "new@example.com",
+		"address": "Jl.",
+		"city": "Jakarta",
+		"password": "secret123",
+		"child": [{"name": "Budi", "gender": "M", "date_of_birth": "2020-01-02T00:00:00.000"}]
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/signup", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.SignUp(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code,
+		"a session that could not be issued must not be reported as 201 Created")
+
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+	// The caller is told what actually happened and what to do about it.
+	errMsg, _ := resp["error"].(string)
+	assert.Contains(t, errMsg, "sign in")
+	// And is never handed a payload carrying empty credentials.
+	assert.NotContains(t, resp, "data")
+	assert.NotContains(t, w.Body.String(), `"token":""`)
+}
+
+// ─── Email verification ───────────────────────────────────────────────────────
+
+// chdirRepoRoot points the process at the project root so handlers that parse
+// templates by relative path resolve them, matching how the binary runs
+// (Dockerfile sets WORKDIR /app and copies templates alongside).
+func chdirRepoRoot(t *testing.T) {
+	t.Helper()
+	repoRoot, err := filepath.Abs("..")
+	require.NoError(t, err)
+	prevWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(repoRoot))
+	t.Cleanup(func() { _ = os.Chdir(prevWd) })
+}
+
+func TestAuthHandler_VerifyEmail_InvalidToken_RendersInvalidPageNotAnError(t *testing.T) {
+	chdirRepoRoot(t)
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "email_verification_tokens" WHERE token = $1`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "token", "expires_at"}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/auth/verify-email?token=bogus", nil)
+
+	h.VerifyEmail(c)
+
+	// A dead link is a page with a way forward, not an HTTP error — the user
+	// opened it from their mail client and needs to be told what to do.
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "Tautan tidak berlaku")
+	assert.Contains(t, w.Body.String(), "Kirim ulang")
+	// The token must never be echoed into the page.
+	assert.NotContains(t, w.Body.String(), "bogus")
+}
+
+func TestAuthHandler_VerifyEmail_SetsNoReferrerHeader(t *testing.T) {
+	chdirRepoRoot(t)
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "email_verification_tokens" WHERE token = $1`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "token", "expires_at"}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/auth/verify-email?token=abc", nil)
+
+	h.VerifyEmail(c)
+
+	// The token rides in the query string, so the page must not leak it
+	// onward via Referer.
+	assert.Equal(t, "no-referrer", w.Header().Get("Referrer-Policy"))
+}
+
+func TestAuthHandler_ResendVerification_Unauthenticated_Returns401(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/resend-verification", nil)
+
+	h.ResendVerification(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthHandler_ResendVerification_AlreadyVerified_Returns200(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	svc := services.NewAuthService(gormDB, nil)
+	h := NewAuthHandler(svc)
+
+	userID := uuid.New()
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE id = $1`)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "phone_number", "email_address", "password",
+			"address", "city", "created_at", "updated_at", "is_deleted", "email_verified",
+		}).AddRow(userID, "Budi", "081", "b@example.com", "hash", "Jl.", "Jakarta", now, now, false, true))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/resend-verification", nil)
+	c.Set("userID", userID.String())
+
+	h.ResendVerification(c)
+
+	// Nothing to do is success: the caller's goal is already met.
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet(), "no token should have been issued")
+}
+
+// userResponse embeds *models.Parent, so its serialization is the contract
+// the app sees. Two things must hold: verification state is exposed, and the
+// password hash is not.
+func TestUserResponse_ExposesVerificationState_AndNeverThePasswordHash(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		verified bool
+	}{
+		{"verified account", true},
+		{"unverified account", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(userResponse{
+				Parent: &models.Parent{
+					Name:          "Budi",
+					EmailAddress:  "budi@example.com",
+					Password:      "$2a$10$averysecretbcrypthash",
+					EmailVerified: tc.verified,
+				},
+			})
+			require.NoError(t, err)
+
+			var got map[string]interface{}
+			require.NoError(t, json.Unmarshal(payload, &got))
+
+			require.Contains(t, got, "email_verified")
+			assert.Equal(t, tc.verified, got["email_verified"])
+
+			// The bcrypt hash must never leave the server: GET /user/:id used
+			// to return it, and the app persisted it in local storage.
+			assert.NotContains(t, got, "password")
+			assert.NotContains(t, string(payload), "averysecretbcrypthash")
+		})
+	}
 }

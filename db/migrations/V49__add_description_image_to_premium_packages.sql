@@ -2,4 +2,3 @@
 -- showcase. Existing rows need no backfill.
 ALTER TABLE premium_packages ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE premium_packages ADD COLUMN IF NOT EXISTS image_url TEXT;
-®

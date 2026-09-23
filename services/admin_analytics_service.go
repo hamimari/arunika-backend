@@ -24,9 +24,13 @@ type DayCount struct {
 }
 
 type PaymentMetrics struct {
-	Status string  `json:"status"`
-	Count  int64   `json:"count"`
-	Total  float64 `json:"total"`
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+	// Total is the gross value of the orders in this group, in whole rupiah.
+	// int64 rather than float64 because amount_idr is a BIGINT and IDR has
+	// no fractional unit — there is nothing to round, and summing large
+	// totals through a float would lose precision for no benefit.
+	Total int64 `json:"total"`
 }
 
 // cached fetches or caches a value in Redis with the given TTL.
@@ -154,28 +158,37 @@ func (s *AdminAnalyticsService) GetSubscriptionStats() (*SubscriptionStats, erro
 	return &stats, nil
 }
 
-// GetPaymentMetrics returns payment counts grouped by status for the given date range.
+// GetPaymentMetrics returns order counts and gross value grouped by order
+// status, optionally restricted to orders created within [from, to].
+//
+// `Status` is an order status — PENDING, PAID, FAILED, EXPIRED or REFUNDED
+// (migrations V36 and V51) — and `Total` is the sum of `amount_idr` for the
+// orders in that group. Because REFUNDED replaces PAID when Google Play
+// voids a purchase, the PAID group already excludes refunded orders and
+// needs no further adjustment to be read as settled revenue.
+//
+// One row per order, so a user who buys five AR cards contributes five.
+//
+// This previously counted rows in `user_subscriptions` — a pre-V36 stub that
+// reported at most one row per user, with `Total` hardcoded to 0, which the
+// backoffice then displayed as payment figures. See F5.
 func (s *AdminAnalyticsService) GetPaymentMetrics(from, to string) ([]PaymentMetrics, error) {
 	key := fmt.Sprintf("analytics:payments:%s:%s", from, to)
 	result, err := s.cached(key, 60*time.Second, func() (interface{}, error) {
 		var rows []PaymentMetrics
-		query := s.db.Raw(`
-			SELECT status, COUNT(*) AS count, 0::float AS total
-			FROM user_subscriptions
-			WHERE 1=1
-		`)
+		var query *gorm.DB
 		if from != "" {
 			query = s.db.Raw(`
-				SELECT status, COUNT(*) AS count, 0::float AS total
-				FROM user_subscriptions
+				SELECT status, COUNT(*) AS count, COALESCE(SUM(amount_idr), 0) AS total
+				FROM orders
 				WHERE created_at >= ? AND created_at <= ?
 				GROUP BY status
 				ORDER BY count DESC
 			`, from, to)
 		} else {
 			query = s.db.Raw(`
-				SELECT status, COUNT(*) AS count, 0::float AS total
-				FROM user_subscriptions
+				SELECT status, COUNT(*) AS count, COALESCE(SUM(amount_idr), 0) AS total
+				FROM orders
 				GROUP BY status
 				ORDER BY count DESC
 			`)

@@ -1,64 +1,17 @@
 package services
 
 import (
-	"arunika_backend/config"
 	"bytes"
-	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
-	"math/rand"
 	"os"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/gomail.v2"
 )
-
-type OTPEmailData struct {
-	OTP string
-}
-
-func SendOTPEmail(to string) error {
-	tmpl, err := template.ParseFiles("templates/otp_email.html")
-	if err != nil {
-		return err
-	}
-
-	var body bytes.Buffer
-	otp := generateOtp()
-	err = tmpl.Execute(&body, OTPEmailData{OTP: otp})
-	if err != nil {
-		return err
-	}
-
-	m := gomail.NewMessage()
-	m.SetHeader("From", fromAddress())
-	m.SetHeader("To", to)
-	m.SetHeader("Subject", "Arunika OTP Code")
-	m.SetBody("text/html", body.String())
-
-	_ = godotenv.Load()
-	port, err := strconv.Atoi(os.Getenv("SMTP_PORT"))
-	if err != nil {
-		return err
-	}
-	err = saveOtpToRedis(to, otp)
-	if err != nil {
-		return err
-	}
-
-	d := gomail.NewDialer(os.Getenv("SMTP_HOST"), port, os.Getenv("SMTP_USER"), os.Getenv("SMTP_PASS"))
-
-	// Optional: log instead of send in dev mode
-	if err := d.DialAndSend(m); err != nil {
-		slog.Error("failed to send OTP email", "error", err, "to", to)
-		return err
-	}
-
-	return nil
-}
 
 // SendGenericEmail sends an HTML email with a custom subject and body.
 // Used for campaign dispatch and payment receipt emails.
@@ -96,18 +49,32 @@ func fromAddress() string {
 	return "arunika.helpdesk@gmail.com"
 }
 
-func generateOtp() string {
-	rand.Seed(time.Now().UnixNano())
-	return fmt.Sprintf("%06d", rand.Intn(1000000))
+// VerificationEmailData fills templates/verification_email.html.
+type VerificationEmailData struct {
+	Name       string
+	VerifyLink string
 }
 
-func saveOtpToRedis(email string, otp string) error {
-	key := fmt.Sprintf("otp:%s", email)
-	expiration := 5 * time.Minute
-
-	err := config.RDB.Set(context.Background(), key, otp, expiration).Err()
+// SendVerificationEmail emails a one-time verification link.
+//
+// It goes through SendGenericEmail (gomail, reads SMTP_PASS) rather than the
+// legacy utils.SendEmail, which reads an "SMTP_PASSWORD" variable that is set
+// nowhere in this codebase — the same trap that once made every
+// password-reset email fail silently.
+//
+// Callers dispatch this asynchronously and treat failure as non-fatal:
+// registration must never fail because mail delivery did.
+func SendVerificationEmail(to, name, rawToken string) error {
+	tmpl, err := template.ParseFiles("templates/verification_email.html")
 	if err != nil {
-		return fmt.Errorf("failed to save OTP to Redis: %w", err)
+		return err
 	}
-	return nil
+
+	link := fmt.Sprintf("%s/auth/verify-email?token=%s", strings.TrimSuffix(os.Getenv("APP_DOMAIN"), "/"), rawToken)
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, VerificationEmailData{Name: name, VerifyLink: link}); err != nil {
+		return err
+	}
+	return SendGenericEmail(to, "Verifikasi Email Arunika", body.String())
 }

@@ -120,3 +120,39 @@ func TestRoutes_PublicBannersEndpoint(t *testing.T) {
 
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
+
+// TestRoutes_EmailVerificationEndpointsRegistered covers the two routes added
+// with email verification. GET /auth/verify-email takes no auth — it is
+// opened from a mail client, where the token in the query string is the
+// credential — so it must not 404 or 401 with no header.
+func TestRoutes_EmailVerificationEndpointsRegistered(t *testing.T) {
+	// Without a secret, JWTAuthMiddleware short-circuits to 500
+	// ("server misconfiguration") before it ever looks at the Authorization
+	// header — so the auth assertion below would be vacuous.
+	t.Setenv("JWT_SECRET", "test-secret-key-at-least-32-chars!!")
+
+	db, _ := setupRouterDB(t)
+	rdb, _ := redismock.NewClientMock()
+	reg := registry.NewServiceRegistry(db, rdb)
+	r := SetupRouter(reg, rdb, db)
+
+	t.Run("verify-email is public", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/auth/verify-email?token=nope", nil)
+		r.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusNotFound, w.Code, "route is not registered")
+		assert.NotEqual(t, http.StatusUnauthorized, w.Code,
+			"verify-email must be reachable without an Authorization header")
+	})
+
+	t.Run("resend-verification requires auth", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/auth/resend-verification", nil)
+		r.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusNotFound, w.Code, "route is not registered")
+		assert.Equal(t, http.StatusUnauthorized, w.Code,
+			"resend-verification must reject an unauthenticated caller")
+	})
+}

@@ -155,20 +155,6 @@ func (s *AuthService) CheckAvailability(email, phone string) (emailTaken bool, p
 	return emailTaken, phoneTaken, nil
 }
 
-func (s *AuthService) SendOtp(request models.Parent) (models.Parent, error) {
-	user, err := models.FindUserByEmail(s.db, request.EmailAddress)
-	if err != nil || user == nil {
-		// Same generic error either way — an unknown email here must not be
-		// distinguishable from a real send failure (account enumeration).
-		return models.Parent{}, errors.New("error when sending the otp")
-	}
-	if err := SendOTPEmail(user.EmailAddress); err != nil {
-		return models.Parent{}, errors.New("error when sending the otp")
-	}
-
-	return request, nil
-}
-
 func (s *AuthService) ValidateCredentials(email string, password string) (*models.Parent, error) {
 	user, _ := models.FindUserByEmail(s.db, email)
 	if user == nil || user.IsDeleted || !models.CheckPassword(user.Password, password) {
@@ -205,6 +191,20 @@ func (s *AuthService) RevokeToken(ctx *gin.Context, jti string, exp time.Time) e
 func (s *AuthService) ForgotPassword(email string) error {
 	var user models.Parent
 	if err := s.db.Where("email_address = ?", email).First(&user).Error; err != nil {
+		return nil
+	}
+
+	// An unverified address is one nobody has proven they control, so mailing
+	// a password-reset link to it would hand account recovery to whoever
+	// happens to own that mailbox — including for an account they never
+	// created. This is the only thing email verification gates.
+	//
+	// It returns nil, exactly as the unknown-email branch above does: the
+	// caller must not be able to tell "no such account" from "not verified"
+	// from "sent". Returning an error here instead would turn this endpoint
+	// into an oracle for which addresses are verified.
+	if !user.EmailVerified {
+		slog.Info("password reset withheld: email not verified", "user_id", user.ID)
 		return nil
 	}
 
@@ -287,4 +287,118 @@ func (s *AuthService) VerifyResetToken(token string) (*models.PasswordResetToken
 		return nil, errors.New("token expired")
 	}
 	return &reset, nil
+}
+
+// ─── Email verification ───────────────────────────────────────────────────────
+
+// ErrEmailAlreadyVerified is returned when there is nothing to do — the
+// caller should treat it as success, not failure.
+var ErrEmailAlreadyVerified = errors.New("email is already verified")
+
+// ErrVerificationTokenInvalid covers unknown, expired and already-consumed
+// tokens alike. They are deliberately indistinguishable to the caller: the
+// user-facing outcome ("this link no longer works, request another") is the
+// same, and separating them would let someone probe which tokens once
+// existed.
+var ErrVerificationTokenInvalid = errors.New("verification link is invalid or has expired")
+
+// IssueEmailVerificationToken creates a fresh verification token for a user
+// and returns the raw value to be emailed. Only its hash is stored, and any
+// previously issued token for that user is deleted, so exactly one link is
+// live at a time.
+//
+// The raw token is a UUIDv4 from github.com/google/uuid, which draws from
+// crypto/rand — the same source the password-reset flow uses.
+func (s *AuthService) IssueEmailVerificationToken(userID uuid.UUID) (string, error) {
+	rawToken := uuid.NewString()
+	expiresAt := time.Now().Add(models.EmailVerificationTokenLifetime)
+
+	if err := models.CreateEmailVerificationToken(
+		s.db, userID, utils.HashToken(rawToken), expiresAt,
+	); err != nil {
+		return "", err
+	}
+	return rawToken, nil
+}
+
+// ConsumeEmailVerificationToken marks the account verified and destroys the
+// token, so a link works exactly once.
+func (s *AuthService) ConsumeEmailVerificationToken(rawToken string) error {
+	_, err := s.ConsumeEmailVerificationTokenForPage(rawToken)
+	return err
+}
+
+// ConsumeEmailVerificationTokenForPage is ConsumeEmailVerificationToken plus
+// the account holder's name, so the confirmation page can greet them.
+//
+// It returns ErrEmailAlreadyVerified (with the name) when a still-valid token
+// belongs to an account that has since been verified some other way — that is
+// a success for the user, not a failure. A token that has already been
+// consumed cannot be told apart from one that never existed, because consumption
+// deletes it; both yield ErrVerificationTokenInvalid, and the page offers a
+// resend path for exactly that case.
+func (s *AuthService) ConsumeEmailVerificationTokenForPage(rawToken string) (string, error) {
+	if rawToken == "" {
+		return "", ErrVerificationTokenInvalid
+	}
+
+	token, err := models.FindEmailVerificationToken(s.db, utils.HashToken(rawToken))
+	if err != nil {
+		return "", ErrVerificationTokenInvalid
+	}
+
+	var user models.Parent
+	if err := s.db.Where("id = ?", token.UserID).First(&user).Error; err != nil {
+		return "", ErrVerificationTokenInvalid
+	}
+
+	if user.EmailVerified {
+		_ = models.DeleteEmailVerificationTokensForUser(s.db, token.UserID)
+		return user.Name, ErrEmailAlreadyVerified
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		// Clear the dead token so it cannot linger and so a resend starts
+		// from a clean slate.
+		_ = models.DeleteEmailVerificationTokensForUser(s.db, token.UserID)
+		return "", ErrVerificationTokenInvalid
+	}
+
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := models.MarkEmailVerified(tx, token.UserID); err != nil {
+			return err
+		}
+		return models.DeleteEmailVerificationTokensForUser(tx, token.UserID)
+	}); err != nil {
+		return "", err
+	}
+	return user.Name, nil
+}
+
+// IsEmailVerified reports whether a user has proven control of their address.
+func (s *AuthService) IsEmailVerified(userID uuid.UUID) (bool, error) {
+	var user models.Parent
+	if err := s.db.Select("email_verified").Where("id = ?", userID).First(&user).Error; err != nil {
+		return false, err
+	}
+	return user.EmailVerified, nil
+}
+
+// ResendVerificationEmail issues a new token and emails it. It reports
+// ErrEmailAlreadyVerified when there is nothing to do, so the caller can
+// respond successfully without issuing a pointless token.
+func (s *AuthService) ResendVerificationEmail(userID uuid.UUID) error {
+	var user models.Parent
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return err
+	}
+	if user.EmailVerified {
+		return ErrEmailAlreadyVerified
+	}
+
+	rawToken, err := s.IssueEmailVerificationToken(user.ID)
+	if err != nil {
+		return err
+	}
+	return SendVerificationEmail(user.EmailAddress, user.Name, rawToken)
 }

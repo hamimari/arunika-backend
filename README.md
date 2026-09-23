@@ -116,14 +116,57 @@ go build -o arunika_backend .
 ## Running Tests
 
 ```bash
-go test ./...
+make test-fast    # inner loop: go test ./...
+make test-all     # everything CI runs on a pull request
 ```
 
-Run with verbose output and race detector:
+`make test-all` needs two tools once per machine:
 
 ```bash
-go test -race -v ./...
+# v1.12.0 and earlier fail to build on Go 1.26
+go install gotest.tools/gotestsum@v1.13.0
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 ```
+
+465 tests (including subtests) cover services, handlers, middlewares, routes
+and JWT utilities using `sqlmock` and `miniredis`. CI runs them under `-race`
+on every pull request (`.github/workflows/pr.yml`).
+
+### Coverage ratchet
+
+`make test-all` compares per-package coverage against `coverage-baseline.json`
+and reports any package that dropped. It is **report-only** today — it prints
+regressions without failing the build. After intentional changes:
+
+```bash
+make coverage-baseline
+```
+
+Current baseline: `routes` 99.5%, `utils` 92.3%, `services` 62.4%,
+`middlewares` 45.1%, `handlers` 28.8%, `models` 0%.
+
+> `models` at 0% is the entitlement data layer (`GrantEntitlement`,
+> `HasEntitlement`, `FindPackageItems`). It is the highest-priority gap and is
+> addressed in Phase 2 of the automation testing strategy.
+
+### Flaky tests
+
+A flaky test is one whose result changes between runs on an unchanged commit.
+The policy across all three Arunika repositories:
+
+- **Never add a retry to hide one.** Retries are permitted only in the E2E
+  tier, where a real device or browser has genuine nondeterminism. A
+  non-deterministic unit or integration test is a real defect in the test or
+  the code.
+- **Quarantine within one working day.** Mark it `t.Skip("flaky — see #NNN")`
+  so it stops blocking merges while still being visible.
+- **Assign an owner and a two-week expiry.** At expiry it is fixed or
+  deleted. A permanently quarantined test is worse than no test — it burns CI
+  time and erodes trust in the suite.
+- **Common causes here:** time-dependent assertions (inject a clock rather
+  than comparing against `time.Now()`), shared Redis or database state between
+  tests, and goroutine ordering. Run `go test -race` before assuming a
+  flake is environmental.
 
 ---
 

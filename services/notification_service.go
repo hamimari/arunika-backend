@@ -219,10 +219,16 @@ func (s *NotificationService) fcmCredentials() (ts oauth2.TokenSource, projectID
 		return s.tokenSource, s.projectID, true, nil
 	}
 
-	creds, err := google.CredentialsFromJSON(
+	// Pinned to google.ServiceAccount rather than the deprecated
+	// CredentialsFromJSON, which accepts any credential type — see the same
+	// note in google_play_verifier.go.
+	creds, err := google.CredentialsFromJSONWithTypeAndParams(
 		context.Background(),
 		[]byte(saJSON),
-		"https://www.googleapis.com/auth/firebase.messaging",
+		google.ServiceAccount,
+		google.CredentialsParams{
+			Scopes: []string{"https://www.googleapis.com/auth/firebase.messaging"},
+		},
 	)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("parse service account: %w", err)
@@ -290,7 +296,7 @@ func (s *NotificationService) sendFCM(target map[string]interface{}, msg PushMes
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return &fcmNotFoundErr{}

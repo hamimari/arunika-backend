@@ -19,6 +19,12 @@ import (
 // ErrPlayBillingNotConfigured is returned when GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
 // is unset — there is no persisted purchase to fall back on, so the caller
 // must reject the request rather than silently skip verification.
+// ST1005 flags the leading capital, but "Google Play Billing" is a proper
+// noun — Go's own style guidance allows an error string to begin with one.
+// Suppressed here rather than repo-wide so genuinely capitalized error
+// strings are still caught elsewhere.
+//
+//nolint:staticcheck // ST1005: proper noun
 var ErrPlayBillingNotConfigured = fmt.Errorf("Google Play Billing is not configured (GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is empty)")
 
 // androidPublisherBaseURL is a var so tests can point verification at an
@@ -172,7 +178,19 @@ func (v *GooglePlayVerifier) tokenSourceFor(ctx context.Context) (oauth2.TokenSo
 		return v.tokenSource, true, nil
 	}
 
-	creds, err := google.CredentialsFromJSON(ctx, []byte(saJSON), "https://www.googleapis.com/auth/androidpublisher")
+	// Pinned to google.ServiceAccount rather than the deprecated
+	// CredentialsFromJSON, which accepts any credential type. If
+	// GOOGLE_PLAY_SERVICE_ACCOUNT_JSON were ever replaced with an
+	// external-account configuration, that variant would happily fetch tokens
+	// from whatever URL the config names; this one rejects it outright.
+	creds, err := google.CredentialsFromJSONWithTypeAndParams(
+		ctx,
+		[]byte(saJSON),
+		google.ServiceAccount,
+		google.CredentialsParams{
+			Scopes: []string{"https://www.googleapis.com/auth/androidpublisher"},
+		},
+	)
 	if err != nil {
 		return nil, false, fmt.Errorf("parse service account: %w", err)
 	}
@@ -203,7 +221,7 @@ func (v *GooglePlayVerifier) get(ctx context.Context, path string, out interface
 	if err != nil {
 		return fmt.Errorf("android publisher request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -241,7 +259,7 @@ func (v *GooglePlayVerifier) post(ctx context.Context, path string, body interfa
 	if err != nil {
 		return fmt.Errorf("android publisher request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

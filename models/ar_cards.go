@@ -27,8 +27,8 @@ type ArCards struct {
 	IsUnlocked   bool       `gorm:"-" json:"is_unlocked"`
 	ProductID    *uuid.UUID `gorm:"-" json:"product_id,omitempty"`
 	PriceIdr     *int64     `gorm:"-" json:"price_idr,omitempty"`
-	Description  string `gorm:"type:text"                  json:"description"`
-	PrintableImg string `gorm:"column:printable_img;type:text;default:''" json:"printable_img"`
+	Description  string     `gorm:"type:text"                  json:"description"`
+	PrintableImg string     `gorm:"column:printable_img;type:text;default:''" json:"printable_img"`
 	// Structured category FKs (from V12 migration)
 	CategoryID     *uuid.UUID      `gorm:"column:category_id;type:uuid"     json:"category_id,omitempty"`
 	SubCategoryID  *uuid.UUID      `gorm:"column:sub_category_id;type:uuid" json:"sub_category_id,omitempty"`

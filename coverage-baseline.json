@@ -1,0 +1,11 @@
+{
+  ".": 0.0,
+  "config": 0.0,
+  "handlers": 38.0,
+  "middlewares": 84.6,
+  "models": 84.9,
+  "registry": 100.0,
+  "routes": 99.5,
+  "services": 70.3,
+  "utils": 92.9
+}
