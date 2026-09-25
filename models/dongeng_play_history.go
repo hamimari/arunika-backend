@@ -29,7 +29,7 @@ func RecordDongengPlay(db *gorm.DB, userID, dongengID uuid.UUID) error {
 	return db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "user_id"}, {Name: "dongeng_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"play_count": gorm.Expr("play_count + 1"),
+			"play_count": gorm.Expr("dongeng_play_history.play_count + 1"),
 			"updated_at": gorm.Expr("NOW()"),
 		}),
 	}).Create(&row).Error

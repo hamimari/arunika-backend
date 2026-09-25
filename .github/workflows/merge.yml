@@ -1,0 +1,75 @@
+name: Merge (cross-system E2E)
+
+# Runs the cross-system business flows (tests/e2e) against the real
+# docker-compose stack. Triggered directly on merges to this repo, and by
+# repository_dispatch from arunika_app and arunika-backoffice so a change
+# there is exercised against the current backend too.
+on:
+  push:
+    branches: [master, main]
+  repository_dispatch:
+    types: [app-merged, backoffice-merged]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.25"
+
+jobs:
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # docker-compose.yml builds the backoffice from ../arunika-backoffice,
+      # so both repos are checked out side by side under one workspace dir.
+      - uses: actions/checkout@v4
+        with:
+          path: arunika-backend
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/arunika-backoffice
+          path: arunika-backoffice
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: arunika-backend/go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      # CI=true makes tests/e2e fail (not skip) if the stack cannot start.
+      - name: Run E2E flows
+        working-directory: arunika-backend
+        env:
+          CI: "true"
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: |
+          mkdir -p reports
+          gotestsum --junitfile reports/e2e-junit.xml --format testname \
+            -- -tags e2e ./tests/e2e/ -count=1 -timeout 25m
+
+      # tests/e2e captures `docker compose logs` and a pg_dump of the database
+      # into E2E_ARTIFACT_DIR for every failed test.
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-evidence
+          path: e2e-artifacts/
+          if-no-files-found: ignore
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: E2E
+          path: arunika-backend/reports/e2e-junit.xml
+          reporter: java-junit
+          fail-on-error: false

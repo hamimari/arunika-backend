@@ -1,0 +1,88 @@
+# Overlay for the cross-system E2E suite (tests/e2e). Brought up alongside
+# docker-compose.yml:
+#
+#   docker compose -p arunika_e2e -f docker-compose.yml -f docker-compose.test.yml up -d --wait
+#
+# tests/e2e/env.go does exactly that — this file is not meant to be run by
+# hand, since app's real configuration is generated per run (see below) and
+# must exist before `up` starts it.
+#
+# Every service below gets its own container name, its own ports, and an
+# ephemeral (unnamed) postgres volume, entirely disjoint from
+# docker-compose.yml's own default project — so this can run on a developer's
+# machine at the same time as their normal `docker compose up` for manual
+# testing, and a failed run always starts from an empty database rather than
+# whatever a previous run left behind.
+
+services:
+  postgres:
+    container_name: arunika_e2e_postgres
+    # Fixed values rather than the base file's ${DB_USER:-arunika} fallback
+    # chain: that chain reads whatever real .env sits in this directory for a
+    # developer's own `docker compose up`, and this stack must behave the
+    # same regardless of what that file happens to contain. tests/e2e/env.go
+    # uses these same three values to connect directly for seeding.
+    environment:
+      POSTGRES_USER: arunika_e2e
+      POSTGRES_PASSWORD: arunika_e2e_pw
+      POSTGRES_DB: arunika_e2e
+    ports: !override
+      - "5442:5432"
+    volumes: !override
+      # Overrides the named `pgdata` volume from the base file with an
+      # anonymous one scoped to this container, so `down -v` (which env.go
+      # always runs before `up`) guarantees a clean database every time.
+      - /var/lib/postgresql/data
+
+  redis:
+    container_name: arunika_e2e_redis
+    ports: !override
+      - "6390:6379"
+    volumes: !override
+      - /data
+
+  flyway:
+    container_name: arunika_e2e_flyway
+    # The base file's command interpolates ${DB_USER:-arunika} etc. at the
+    # Compose level (not container env), so it is not reachable through
+    # `app`'s env_file override above — it needs its own override here, for
+    # the same reason postgres's environment block does.
+    command: >
+      -url=jdbc:postgresql://postgres:5432/arunika_e2e
+      -user=arunika_e2e
+      -password=arunika_e2e_pw
+      -locations=filesystem:/flyway/sql,filesystem:/flyway/seeds
+      -connectRetries=5
+      migrate
+
+  app:
+    container_name: arunika_e2e_app
+    # Replaces, not merges with, the base file's `env_file: [.env]` — Compose
+    # does not merge list-valued keys across files. .env.e2e.generated is
+    # written by tests/e2e/env.go immediately before `up` and is careful to
+    # be a complete set on its own, not just the Play-related additions.
+    env_file:
+      - db/seeds/test/.env.e2e.generated
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports: !override
+      - "8090:8080"
+    # The fake Android Publisher (tests/fixtures.NewFakePlayForDocker) runs in
+    # the Go test process on the host, not in this compose network, so `app`
+    # reaches it the same way a container reaches anything on the host.
+    # host.docker.internal resolves out of the box on Docker Desktop and
+    # OrbStack; host-gateway makes it resolve on plain Linux (including
+    # GitHub Actions runners) too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  backoffice:
+    container_name: arunika_e2e_backoffice
+    build:
+      args:
+        VITE_API_BASE_URL: http://localhost:8090
+    ports: !override
+      - "3010:80"

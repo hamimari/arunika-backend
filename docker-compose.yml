@@ -63,11 +63,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # -locations previously listed only /flyway/sql, so ./db/seeds was mounted
+    # below but never actually applied — every `docker compose up` migrated
+    # the schema but silently skipped R__seed_admin_user.sql and
+    # R__seed_dongeng_categories.sql. flyway.conf (used for a local, non-Docker
+    # flyway CLI run) already lists both locations correctly; this command
+    # just never matched it. Found while building the E2E compose stack,
+    # which depends on the admin seed to log in at all.
     command: >
       -url=jdbc:postgresql://postgres:5432/${DB_NAME:-arunika}
       -user=${DB_USER:-arunika}
       -password=${DB_PASSWORD:-changeme}
-      -locations=filesystem:/flyway/sql
+      -locations=filesystem:/flyway/sql,filesystem:/flyway/seeds
       -connectRetries=5
       migrate
     volumes:

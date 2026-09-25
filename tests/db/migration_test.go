@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"arunika_backend/tests/fixtures"
 )
@@ -120,4 +121,27 @@ func TestMigrations_V55_ReapplyDoesNotVerifyNewAccounts(t *testing.T) {
 	).Scan(&verified))
 	assert.False(t, verified,
 		"re-running V55 must not grandfather an account created after it first ran")
+}
+
+// Regression: the seeded admin password hash did not actually match its
+// documented password. Nothing had ever verified the two agree, so a fresh
+// environment's admin login silently failed with "invalid credentials"
+// against a genuinely correct-looking seed file — found while wiring up the
+// Flutter integration_test harness, which needs a real admin session to seed
+// content for its flows.
+func TestSeeds_AdminUserPasswordMatchesItsDocumentedValue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := fixtures.EmptyDB(t)
+
+	require.NoError(t, fixtures.ApplyVersionedMigrations(ctx, db))
+	require.NoError(t, fixtures.ApplyRepeatableMigrations(ctx, db))
+
+	var hash string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT password_hash FROM admin_users WHERE email = 'admin@arunika.id'`,
+	).Scan(&hash))
+
+	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte("admin123")),
+		"the seeded admin_users row must actually verify against the password documented in R__seed_admin_user.sql")
 }

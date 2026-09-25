@@ -38,3 +38,5 @@ flyway.conf
 
 # Local debug output from ad-hoc `go run main.go | tee` sessions
 *.log
+db/seeds/test/.env.e2e.generated
+tests/e2e/artifacts/

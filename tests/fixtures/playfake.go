@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,11 @@ type FakePlay struct {
 	// ServiceAccountJSON is what GOOGLE_PLAY_SERVICE_ACCOUNT_JSON should be
 	// set to for the backend to talk to this server.
 	ServiceAccountJSON string
+	// AdvertisedURL is what ANDROID_PUBLISHER_BASE_URL should be set to.
+	// Equal to Server.URL for NewFakePlay (same-process callers); for
+	// NewFakePlayForDocker it names the host a containerized backend can
+	// actually dial, not the 0.0.0.0 the listener is bound to.
+	AdvertisedURL string
 
 	mu            sync.Mutex
 	products      map[string]int    // purchase token -> purchaseState (0 purchased, 1 canceled, 2 pending)
@@ -39,10 +45,28 @@ type FakePlay struct {
 	errors        map[string]int // purchase token -> HTTP status to return instead
 }
 
-// NewFakePlay starts the fake server. Callers set the three environment
-// variables it reports, normally once per test process, and then register
-// per-test purchase tokens — which keeps it usable from parallel tests.
+// NewFakePlay starts the fake server bound to loopback only, for tests that
+// run in the same process as the backend code under test (tests/api,
+// tests/db). Callers set the three environment variables it reports, then
+// register per-test purchase tokens — which keeps it usable from parallel
+// tests.
 func NewFakePlay() (*FakePlay, error) {
+	return newFakePlay("127.0.0.1:0", "")
+}
+
+// NewFakePlayForDocker starts the fake server bound to every interface
+// (0.0.0.0), for the cross-system E2E suite: there the backend runs inside a
+// container and reaches this server over the host network, so loopback would
+// resolve to the container itself, not the host. advertiseHost is the name
+// the containerized backend can reach this process by — normally
+// "host.docker.internal" (works out of the box on Docker Desktop and OrbStack;
+// docker-compose.test.yml adds the extra_hosts entry that makes it resolve on
+// Linux CI runners too).
+func NewFakePlayForDocker(advertiseHost string) (*FakePlay, error) {
+	return newFakePlay("0.0.0.0:0", advertiseHost)
+}
+
+func newFakePlay(listenAddr, advertiseHost string) (*FakePlay, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, fmt.Errorf("generate throwaway key: %w", err)
@@ -53,7 +77,28 @@ func NewFakePlay() (*FakePlay, error) {
 		subscriptions: map[string]string{},
 		errors:        map[string]int{},
 	}
-	f.Server = httptest.NewServer(http.HandlerFunc(f.handle))
+
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", listenAddr, err)
+	}
+	f.Server = &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: http.HandlerFunc(f.handle)},
+	}
+	f.Server.Start()
+
+	// The URL Start() derives is built from the listener's own address —
+	// 0.0.0.0 for the Docker case, which nothing outside this machine can
+	// dial. Rewrite it to the address a container can actually reach.
+	advertisedURL := f.Server.URL
+	if advertiseHost != "" {
+		_, port, splitErr := net.SplitHostPort(listener.Addr().String())
+		if splitErr != nil {
+			return nil, fmt.Errorf("split listener address: %w", splitErr)
+		}
+		advertisedURL = "http://" + net.JoinHostPort(advertiseHost, port)
+	}
 
 	pemKey := pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
@@ -66,13 +111,14 @@ func NewFakePlay() (*FakePlay, error) {
 		"private_key":    string(pemKey),
 		"client_email":   "play-test@arunika-test.iam.gserviceaccount.com",
 		"client_id":      "1",
-		"token_uri":      f.Server.URL + "/token",
+		"token_uri":      advertisedURL + "/token",
 	}
 	encoded, err := json.Marshal(sa)
 	if err != nil {
 		return nil, err
 	}
 	f.ServiceAccountJSON = string(encoded)
+	f.AdvertisedURL = advertisedURL
 	return f, nil
 }
 
