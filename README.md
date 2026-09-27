@@ -132,6 +132,20 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 and JWT utilities using `sqlmock` and `miniredis`. CI runs them under `-race`
 on every pull request (`.github/workflows/pr.yml`).
 
+### Security, smoke and E2E suites
+
+`go test ./...` already includes `tests/security` (token forgery, escalation,
+purchase tampering, injection, error leakage). Other suites are opt-in:
+
+```bash
+go test ./tests/security/ -count=1 -v                    # security only
+make test-e2e                                            # docker-compose E2E
+SMOKE_BASE_URL=... go test -tags smoke ./tests/smoke/    # deployed environment
+python3 scripts/flaky_detect.py reports/nightly-*.xml    # compare repeated runs
+```
+
+Full manual for all three repos: `arunika_app/docs/automation-testing.md`.
+
 ### Coverage ratchet
 
 `make test-all` compares per-package coverage against `coverage-baseline.json`
