@@ -237,15 +237,46 @@ func TestArHandler_FindById_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	id := uuid.NewString()
+	c.Request = httptest.NewRequest(http.MethodGet, "/ar/cards/"+id, nil)
+	c.Params = gin.Params{{Key: "id", Value: id}}
+
+	h.FindById(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code, "an unknown card is a 404, not a server error")
+}
+
+func TestArHandler_FindById_InvalidID_IsBadRequestAndNeverQueries(t *testing.T) {
+	gormDB, mock := setupHandlerDB(t)
+	h := NewArHandler(newTestArService(gormDB))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/ar/cards/bad-id", nil)
 	c.Params = gin.Params{{Key: "id", Value: "bad-id"}}
 
 	h.FindById(c)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NotContains(t, w.Body.String(), "SQLSTATE")
+	assert.NoError(t, mock.ExpectationsWereMet(), "no query may be issued for a malformed id")
+}
+
+func TestArHandler_GetAll_InvalidCategoryID_IsBadRequest(t *testing.T) {
+	gormDB, _ := setupHandlerDB(t)
+	h := NewArHandler(newTestArService(gormDB))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/ar/cards?category_id=%27+OR+1%3D1", nil)
+
+	h.GetAll(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestArHandler_FindById_Success(t *testing.T) {
+	cardID := uuid.NewString()
 	gormDB, mock := setupHandlerDB(t)
 	svc := newTestArService(gormDB)
 	h := NewArHandler(svc)
@@ -253,20 +284,20 @@ func TestArHandler_FindById_Success(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
 		"id", "type", "title", "file_url", "sound_url", "short_code", "created_at", "expires_at",
-	}).AddRow("card-1", "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
+	}).AddRow(cardID, "model", "Dragon", "https://cdn/dragon.glb", "", "DRG", now, nil)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
-		WithArgs("card-1", false, 1).
+		WithArgs(cardID, false, 1).
 		WillReturnRows(rows)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "product_ar_cards" WHERE ar_card_id = $1 ORDER BY "product_ar_cards"."product_id" LIMIT $2`)).
-		WithArgs("card-1", 1).
+		WithArgs(cardID, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"product_id", "ar_card_id"}))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/ar/cards/card-1", nil)
-	c.Params = gin.Params{{Key: "id", Value: "card-1"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/ar/cards/"+cardID, nil)
+	c.Params = gin.Params{{Key: "id", Value: cardID}}
 
 	h.FindById(c)
 

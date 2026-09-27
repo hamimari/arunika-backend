@@ -21,19 +21,6 @@ var leakMarkers = []string{
 	"goroutine ", "runtime error", "panic", ".go:", "/Users/", "/app/", "/home/",
 }
 
-// knownLeaks are routes that currently answer a malformed id with a 500 and the
-// raw Postgres error (SQLSTATE 22P02: the id is passed to the query without
-// being parsed as a UUID first). No injection is possible — the value is
-// parameterised — but the message discloses schema details and the 500 is
-// wrong. Each entry is a real defect: fix the handler, then delete the entry.
-// Listing them, rather than skipping the tests, keeps every other route guarded.
-var knownLeaks = map[string]string{
-	"GET /ar/cards/:id": "handlers/ar_handler.go FindById does not validate the id",
-}
-
-// knownLeakParams are query parameters with the same defect.
-var knownLeakParams = map[string]bool{"/ar/cards?category_id": true}
-
 func assertNoLeak(t *testing.T, label string, res *Response) {
 	t.Helper()
 	body := string(res.Body)
@@ -75,9 +62,6 @@ func TestInjection_SQLMetacharactersInQueryParameters_AreInert(t *testing.T) {
 		for _, path := range publicPaths {
 			for _, param := range params {
 				target := path + "?" + param + "=" + urlEscape(payload)
-				if knownLeakParams[path+"?"+param] {
-					continue
-				}
 				res := env.GET(target, user.Token)
 				assert.Less(t, res.Code, 500, "GET %s: %s", target, string(res.Body))
 				assertNoLeak(t, "GET "+target, res)
@@ -105,7 +89,7 @@ func TestInjection_SQLMetacharactersInPathAndBody_AreInert(t *testing.T) {
 	user := env.Register(t)
 
 	for _, payload := range sqlPayloads {
-		for _, path := range []string{"/fairy-tales/", "/orders/", "/user/"} {
+		for _, path := range []string{"/fairy-tales/", "/orders/", "/ar/cards/", "/user/"} {
 			res := env.GET(path+urlEscape(payload), user.Token)
 			assert.Less(t, res.Code, 500, "GET %s: %s", path, string(res.Body))
 			assertNoLeak(t, "GET "+path+payload, res)
@@ -162,9 +146,6 @@ func TestErrorLeakage_NoRouteRevealsInternals(t *testing.T) {
 
 	checked := 0
 	for _, route := range env.Router.Routes() {
-		if _, known := knownLeaks[route.Method+" "+route.Path]; known {
-			continue
-		}
 		path := routeParam.ReplaceAllString(route.Path, "not-a-uuid")
 		for _, token := range []string{"", user.Token} {
 			for _, body := range []string{`{`, `{"x": [1,2,3]}`, ``} {

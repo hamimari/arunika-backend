@@ -97,16 +97,9 @@ func TestHorizontal_UserProfileOfAnotherUser_IsForbidden(t *testing.T) {
 	assert.NotContains(t, string(res.Body), b.Email)
 }
 
-// Growth records hang off a child, and the child belongs to a parent. None of
-// the /growth handlers compare the child's parent with the caller, so any
-// signed-in user who learns a child id can read, write and edit that child's
-// health data. The tests below assert the policy that should hold.
-//
-// KNOWN VULNERABILITY — see the skip reason. Remove the skips when
-// GrowthService checks ownership; until then they document the gap and keep it
-// visible in every test run.
-const growthIDOR = "KNOWN VULNERABILITY: /growth handlers do not verify the child belongs to the caller " +
-	"(handlers/growth_handler.go, services/growth_service.go); fix, then delete this skip"
+// Growth records hang off a child, and the child belongs to a parent, so every
+// /growth route must check that the child is the caller's. A foreign child must
+// look exactly like a missing one.
 
 func TestHorizontal_GrowthRecordsOfAnotherUsersChild_CannotBeRead(t *testing.T) {
 	t.Parallel()
@@ -121,13 +114,32 @@ func TestHorizontal_GrowthRecordsOfAnotherUsersChild_CannotBeRead(t *testing.T) 
 	require.Contains(t, string(own.Body), rec.ID.String(), "sanity: the parent sees their child's records")
 
 	res := env.GET("/growth?child_id="+child.String(), a.Token)
-	if strings.Contains(string(res.Body), rec.ID.String()) {
-		t.Skip(growthIDOR)
-	}
-	assert.Contains(t, []int{http.StatusForbidden, http.StatusNotFound, http.StatusOK}, res.Code)
+
+	assert.Equal(t, http.StatusNotFound, res.Code)
+	assert.NotContains(t, string(res.Body), rec.ID.String())
+
+	unknown := env.GET("/growth?child_id="+uuid.NewString(), a.Token)
+	assert.Equal(t, res.Code, unknown.Code, "a foreign child and a nonexistent one must be indistinguishable")
+	assert.JSONEq(t, string(res.Body), string(unknown.Body))
 }
 
-func TestHorizontal_GrowthRecordOfAnotherUsersChild_CannotBeCreatedOrEdited(t *testing.T) {
+func TestHorizontal_GrowthRecordOfAnotherUsersChild_CannotBeCreated(t *testing.T) {
+	t.Parallel()
+	env := NewEnv(t)
+	a, b := env.Register(t), env.Register(t)
+	child := env.ChildID(t, b)
+
+	res := env.POST("/growth", a.Token, map[string]interface{}{
+		"child_id": child.String(), "weight_kg": 2, "height_cm": 2,
+	})
+
+	assert.Equal(t, http.StatusNotFound, res.Code)
+	var count int64
+	env.DB.Model(&models.GrowthRecord{}).Where("child_id = ?", child).Count(&count)
+	assert.Zero(t, count, "nothing may be written to another user's child")
+}
+
+func TestHorizontal_GrowthRecordOfAnotherUsersChild_CannotBeEdited(t *testing.T) {
 	t.Parallel()
 	env := NewEnv(t)
 	a, b := env.Register(t), env.Register(t)
@@ -135,19 +147,32 @@ func TestHorizontal_GrowthRecordOfAnotherUsersChild_CannotBeCreatedOrEdited(t *t
 	rec := models.GrowthRecord{ChildID: child, WeightKg: 15.5, HeightCm: 98, RecordedAt: time.Now()}
 	require.NoError(t, env.DB.Create(&rec).Error)
 
-	edit := env.PUT("/growth/"+rec.ID.String(), a.Token, map[string]float64{"weight_kg": 1, "height_cm": 1})
-	create := env.POST("/growth", a.Token, map[string]interface{}{
-		"child_id": child.String(), "weight_kg": 2, "height_cm": 2,
-	})
+	res := env.PUT("/growth/"+rec.ID.String(), a.Token, map[string]float64{"weight_kg": 1, "height_cm": 1})
 
+	assert.Equal(t, http.StatusNotFound, res.Code)
 	var after models.GrowthRecord
 	require.NoError(t, env.DB.First(&after, "id = ?", rec.ID).Error)
-	var count int64
-	env.DB.Model(&models.GrowthRecord{}).Where("child_id = ?", child).Count(&count)
+	assert.Equal(t, 15.5, after.WeightKg, "the record must be unchanged")
+}
 
-	if edit.Code < 300 || create.Code < 300 || after.WeightKg != 15.5 || count != 1 {
-		t.Skip(growthIDOR)
-	}
+func TestGrowth_OwnerCanStillReadCreateAndEdit(t *testing.T) {
+	t.Parallel()
+	env := NewEnv(t)
+	parent := env.Register(t)
+	child := env.ChildID(t, parent)
+
+	created := env.POST("/growth", parent.Token, map[string]interface{}{
+		"child_id": child.String(), "weight_kg": 12, "height_cm": 90,
+	})
+	require.Equal(t, http.StatusCreated, created.Code, string(created.Body))
+	id := created.Data()["id"].(string)
+
+	edited := env.PUT("/growth/"+id, parent.Token, map[string]float64{"weight_kg": 13, "height_cm": 91})
+	assert.Equal(t, http.StatusOK, edited.Code, string(edited.Body))
+
+	list := env.GET("/growth?child_id="+child.String(), parent.Token)
+	require.Equal(t, http.StatusOK, list.Code)
+	assert.Contains(t, string(list.Body), id)
 }
 
 // ── 7.3 Vertical escalation: a user token on every admin route ──────────────
