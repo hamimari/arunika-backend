@@ -144,7 +144,7 @@ SMOKE_BASE_URL=... go test -tags smoke ./tests/smoke/    # deployed environment
 python3 scripts/flaky_detect.py reports/nightly-*.xml    # compare repeated runs
 ```
 
-Full manual for all three repos: `arunika_app/docs/automation-testing.md`.
+Full guide: [`docs/automation-testing.md`](docs/automation-testing.md).
 
 ### Coverage ratchet
 
