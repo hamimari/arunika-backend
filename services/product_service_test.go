@@ -290,10 +290,15 @@ func TestProductService_ListEnriched_Success(t *testing.T) {
 		WithArgs(id1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"product_id", "ar_card_id"}).AddRow(id1, "card-1"))
 
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT is_free FROM "ar_cards" WHERE id = $1`)).
+		WithArgs("card-1").
+		WillReturnRows(sqlmock.NewRows([]string{"is_free"}).AddRow(true))
+
 	views, err := svc.ListEnriched()
 
 	require.NoError(t, err)
 	require.Len(t, views, 1)
+	assert.True(t, views[0].ContentIsFree, "the card is flagged free even though it has a product")
 	assert.Equal(t, "AR_CARD", views[0].FeatureCode)
 	assert.Equal(t, "card-1", views[0].ContentID)
 	assert.Equal(t, "Singa", views[0].DisplayName)

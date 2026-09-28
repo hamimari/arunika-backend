@@ -172,6 +172,14 @@ func (h *PaymentHandler) CreateProductTransaction(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product"})
 		return
 	}
+	if free, err := h.productService.IsContentFree(productID); err != nil {
+		slog.Error("CreateProductPayment: free-content check failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check product"})
+		return
+	} else if free {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is free"})
+		return
+	}
 	if !h.checkPurchaseAllowed(c, userID, nil, false) {
 		return
 	}
@@ -281,6 +289,14 @@ func (h *PaymentHandler) CreatePlayProductOrder(c *gin.Context) {
 	product, err := h.productService.GetByID(productID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product"})
+		return
+	}
+	if free, err := h.productService.IsContentFree(productID); err != nil {
+		slog.Error("CreatePlayProductOrder: free-content check failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check product"})
+		return
+	} else if free {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is free"})
 		return
 	}
 	if !h.checkPurchaseAllowed(c, userID, nil, true) {

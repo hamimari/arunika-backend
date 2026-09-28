@@ -67,13 +67,14 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	// path as the POST above, different HTTP method, no conflict.
 	r.GET("/reset-password", authHandler.ResetPasswordPage)
 
-	userHandler := handlers.NewUserHandler(reg.UserService, reg.AccountDeletionService, reg.AuthService)
+	userHandler := handlers.NewUserHandler(reg.UserService, reg.AccountDeletionService, reg.AuthService).WithConsent(reg.ConsentService)
 	user := r.Group("/user")
 	user.Use(middlewares.JWTAuthMiddleware(rdb))
 	{
 		user.GET("/:id", userHandler.GetUserByID)
 		user.PUT("", userHandler.UpdateUser)
 		user.DELETE("/me", userHandler.DeleteAccount)
+		user.POST("/consent", userHandler.RecordConsent)
 	}
 
 	arHandler := handlers.NewArHandler(reg.ArService)
@@ -255,6 +256,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.PUT("/content/fairy-tales/:id", adminContentHandler.UpdateFairyTale)
 		admin.DELETE("/content/fairy-tales/:id", adminContentHandler.DeleteFairyTale)
 		admin.PATCH("/content/fairy-tales/:id/visibility", adminContentHandler.ToggleFairyTaleVisibility)
+		admin.PATCH("/content/fairy-tales/:id/free", adminContentHandler.SetFairyTaleFree)
 
 		// Content — AR Cards
 		admin.GET("/content/ar-cards", adminContentHandler.ListArCards)
@@ -263,6 +265,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.PUT("/content/ar-cards/:id", adminContentHandler.UpdateArCard)
 		admin.DELETE("/content/ar-cards/:id", adminContentHandler.DeleteArCard)
 		admin.PATCH("/content/ar-cards/:id/visibility", adminContentHandler.ToggleArCardVisibility)
+		admin.PATCH("/content/ar-cards/:id/free", adminContentHandler.SetArCardFree)
 
 		// Content — Tracing Items
 		admin.GET("/content/tracing-items", adminContentHandler.ListTracingItems)

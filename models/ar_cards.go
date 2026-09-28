@@ -14,6 +14,10 @@ type ArCards struct {
 	SoundUrl  string `gorm:"column:sound_url;type:text" json:"sound_url"`
 	ShortCode string `gorm:"uniqueIndex;type:text"      json:"short_code"`
 	Hidden    bool   `gorm:"column:hidden;default:false" json:"hidden"`
+	// IsFree makes the card free even when it has a product, without
+	// touching the product, its orders or entitlements, so it can be flipped
+	// back. A card with no product is free regardless.
+	IsFree bool `gorm:"column:is_free;not null;default:false" json:"is_free"`
 	// Legacy free-text fields (kept for backward compat, prefer CategoryID/SubCategoryID)
 	Category    string `gorm:"type:varchar(50)"           json:"category"`
 	SubCategory string `gorm:"column:sub_category;type:varchar(50)" json:"sub_category"`

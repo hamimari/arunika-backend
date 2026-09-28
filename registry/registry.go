@@ -33,6 +33,7 @@ type ServiceRegistry struct {
 	FeatureFlagService     *services.FeatureFlagService
 	StrikePriceService     *services.StrikePriceService
 	AccountDeletionService *services.AccountDeletionService
+	ConsentService         *services.ConsentService
 }
 
 func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
@@ -68,5 +69,6 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		FeatureFlagService:     services.NewFeatureFlagService(db),
 		StrikePriceService:     strikeSvc,
 		AccountDeletionService: services.NewAccountDeletionService(db),
+		ConsentService:         services.NewConsentService(db),
 	}
 }

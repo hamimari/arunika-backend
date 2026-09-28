@@ -44,6 +44,10 @@ type SignUpRequest struct {
 	City         string  `json:"city" binding:"required"`
 	Password     string  `json:"password" binding:"required"`
 	Child        []Child `json:"child" binding:"required"`
+	// Consent is optional so app builds released before UU PDP consent
+	// existed can still sign up; such accounts have no consent rows and are
+	// asked to consent on their next launch (profile consent_required).
+	Consent *services.ConsentInput `json:"consent"`
 }
 
 type Child struct {
@@ -156,6 +160,16 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		Address:      req.Address,
 		City:         req.City,
 		Children:     children,
+	}
+	if req.Consent != nil {
+		// The user id doesn't exist yet: GORM fills it in when it inserts
+		// these rows together with the parent.
+		consents, err := req.Consent.Rows(uuid.Nil, c.ClientIP(), c.Request.UserAgent())
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		parent.Consents = consents
 	}
 
 	user, err := h.service.Signup(parent)

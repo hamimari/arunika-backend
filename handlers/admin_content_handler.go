@@ -31,6 +31,16 @@ func pageParams(c *gin.Context) (int, int) {
 	return page, perPage
 }
 
+func freeBody(c *gin.Context) (bool, error) {
+	var body struct {
+		IsFree *bool `json:"is_free" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		return false, err
+	}
+	return *body.IsFree, nil
+}
+
 func visibilityBody(c *gin.Context) (bool, error) {
 	var body struct {
 		Hidden bool `json:"hidden"`
@@ -109,6 +119,20 @@ func (h *AdminContentHandler) ToggleFairyTaleVisibility(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"hidden": hidden})
 }
 
+// SetFairyTaleFree handles PATCH /admin/content/fairy-tales/:id/free.
+func (h *AdminContentHandler) SetFairyTaleFree(c *gin.Context) {
+	isFree, err := freeBody(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.SetFairyTaleFree(c.Param("id"), isFree); err != nil {
+		writeFreeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"is_free": isFree})
+}
+
 // ─── AR Cards ────────────────────────────────────────────────────────────────
 
 func (h *AdminContentHandler) ListArCards(c *gin.Context) {
@@ -177,6 +201,30 @@ func (h *AdminContentHandler) ToggleArCardVisibility(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"hidden": hidden})
+}
+
+// SetArCardFree handles PATCH /admin/content/ar-cards/:id/free. Editing a
+// card (PUT) never changes this flag, so a client that doesn't know about it
+// can't turn a free card back into a paid one by saving its title.
+func (h *AdminContentHandler) SetArCardFree(c *gin.Context) {
+	isFree, err := freeBody(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.SetArCardFree(c.Param("id"), isFree); err != nil {
+		writeFreeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"is_free": isFree})
+}
+
+func writeFreeError(c *gin.Context, err error) {
+	if err.Error() == "not found" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 }
 
 // ─── Tracing Items ────────────────────────────────────────────────────────────

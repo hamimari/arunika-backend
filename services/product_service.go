@@ -153,6 +153,9 @@ type AdminProductView struct {
 	// PlayProductID is the Google Play SKU selling this product (nil =
 	// not purchasable through Google Play Billing).
 	PlayProductID *string `json:"play_product_id"`
+	// ContentIsFree is true when the AR card / dongeng this product sells is
+	// flagged free: the product is kept, but nobody needs it to get in.
+	ContentIsFree bool `json:"content_is_free"`
 	// The stored strike-price override and the effective strike price it
 	// resolves to right now (override, else the feature's global rule).
 	models.StrikeOverride
@@ -195,6 +198,7 @@ func (s *ProductService) ListEnriched() ([]AdminProductView, error) {
 			view.DisplayName = name
 		}
 		view.ContentID = s.resolveContentID(p.ID)
+		view.ContentIsFree = s.contentIsFree(view.FeatureCode, view.ContentID)
 		views[i] = view
 	}
 	return views, nil
@@ -212,6 +216,36 @@ func (s *ProductService) resolveContentID(productID uuid.UUID) string {
 		return pd.DongengID.String()
 	}
 	return ""
+}
+
+// contentIsFree reports whether the content a product sells is flagged free.
+// A lookup failure reads as "not free": this only feeds an admin badge, and
+// hiding a paid item as free would be the worse mistake.
+func (s *ProductService) contentIsFree(featureCode, contentID string) bool {
+	if contentID == "" {
+		return false
+	}
+	table := "ar_cards"
+	if featureCode == FeatureCodeDongeng {
+		table = "dongengs"
+	}
+	var isFree bool
+	if err := s.db.Table(table).Select("is_free").Where("id = ?", contentID).Scan(&isFree).Error; err != nil {
+		return false
+	}
+	return isFree
+}
+
+// IsContentFree reports whether the AR card or dongeng behind a product is
+// flagged free. Order creation uses it to refuse selling something that no
+// longer needs buying.
+func (s *ProductService) IsContentFree(productID uuid.UUID) (bool, error) {
+	var isFree bool
+	err := s.db.Raw(`SELECT COALESCE(
+			(SELECT a.is_free FROM product_ar_cards pac JOIN ar_cards a ON a.id = pac.ar_card_id WHERE pac.product_id = ?),
+			(SELECT d.is_free FROM product_dongengs pd JOIN dongengs d ON d.id = pd.dongeng_id WHERE pd.product_id = ?),
+			false)`, productID, productID).Scan(&isFree).Error
+	return isFree, err
 }
 
 // GetByID returns a single product by ID.

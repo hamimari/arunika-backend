@@ -202,3 +202,27 @@ func TestArService_GetByID_DBError(t *testing.T) {
 	assert.Nil(t, result)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// A card flagged is_free is unlocked for everyone without even looking up its
+// product, and exposes no product or price, so the app shows no buy button.
+func TestArService_GetByID_FlaggedFree_SkipsProductLookup(t *testing.T) {
+	gormDB, mock := setupMockDB(t)
+	svc := newArService(gormDB)
+
+	id := "ar-card-free"
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "ar_cards" WHERE id = $1 AND hidden = $2 ORDER BY "ar_cards"."id" LIMIT $3`)).
+		WithArgs(id, false, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "type", "title", "file_url", "sound_url", "short_code", "is_free", "created_at", "expires_at",
+		}).AddRow(id, "model", "Lion", "https://cdn/lion.glb", "", "LIO", true, now, nil))
+	// No product query is expected: an unexpected one fails the test.
+
+	result, err := svc.GetByID(id, nil)
+
+	require.NoError(t, err)
+	assert.True(t, result.IsUnlocked)
+	assert.Nil(t, result.ProductID)
+	assert.Nil(t, result.PriceIdr)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

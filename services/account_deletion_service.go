@@ -65,6 +65,10 @@ func (s *AccountDeletionService) DeleteAccount(userID uuid.UUID) error {
 			{&models.FCMToken{}, "user_id"},
 			{&models.UserSession{}, "user_id"},
 			{&models.RefreshToken{}, "user_id"},
+			// Carries the IP and user agent, so it goes with the account.
+			// Not left to a cascade: the parents row is anonymised, not
+			// removed.
+			{&models.UserConsent{}, "user_id"},
 		} {
 			if err := tx.Where(del.col+" = ?", userID).Delete(del.table).Error; err != nil {
 				return fmt.Errorf("delete %T: %w", del.table, err)

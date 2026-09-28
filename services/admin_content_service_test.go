@@ -44,11 +44,16 @@ func TestAdminContentService_ListFairyTales_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "age_start", "age_end", "image_url", "is_free", "is_deleted", "hidden", "created_at", "updated_at"}).
 			AddRow(id, "Si Kancil", 3, 6, "https://img/kancil.png", true, false, false, now, now))
 
+	// No product is linked, so it is free.
+	mock.ExpectQuery(`FROM product_dongengs pd JOIN products p`).
+		WillReturnRows(sqlmock.NewRows([]string{"content_id", "price_idr", "is_active"}))
+
 	items, total, err := svc.ListFairyTales("", 1, 20)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Len(t, items, 1)
 	assert.Equal(t, "Si Kancil", items[0].Title)
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestAdminContentService_ListFairyTales_DBError(t *testing.T) {

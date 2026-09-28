@@ -18,7 +18,7 @@ func NewAdminContentService(db *gorm.DB) *AdminContentService {
 
 // ─── Fairy Tales ──────────────────────────────────────────────────────────────
 
-func (s *AdminContentService) ListFairyTales(search string, page, perPage int) ([]models.Dongeng, int64, error) {
+func (s *AdminContentService) ListFairyTales(search string, page, perPage int) ([]AdminFairyTaleView, int64, error) {
 	var items []models.Dongeng
 	var total int64
 	q := s.db.Model(&models.Dongeng{}).Where("is_deleted = false")
@@ -26,14 +26,23 @@ func (s *AdminContentService) ListFairyTales(search string, page, perPage int) (
 		q = q.Where("title ILIKE ?", "%"+search+"%")
 	}
 	q.Count(&total)
-	err := q.Limit(perPage).Offset((page - 1) * perPage).Order("created_at DESC").Find(&items).Error
-	return items, total, err
+	if err := q.Limit(perPage).Offset((page - 1) * perPage).Order("created_at DESC").Find(&items).Error; err != nil {
+		return nil, total, err
+	}
+	views, err := s.fairyTaleViews(items)
+	return views, total, err
 }
 
-func (s *AdminContentService) GetFairyTale(id string) (*models.Dongeng, error) {
+func (s *AdminContentService) GetFairyTale(id string) (*AdminFairyTaleView, error) {
 	var item models.Dongeng
-	err := s.db.Preload("Pages").Where("id = ? AND is_deleted = false", id).First(&item).Error
-	return &item, err
+	if err := s.db.Preload("Pages").Where("id = ? AND is_deleted = false", id).First(&item).Error; err != nil {
+		return &AdminFairyTaleView{Dongeng: item}, err
+	}
+	views, err := s.fairyTaleViews([]models.Dongeng{item})
+	if err != nil {
+		return nil, err
+	}
+	return &views[0], nil
 }
 
 func (s *AdminContentService) CreateFairyTale(input models.Dongeng) (*models.Dongeng, error) {
@@ -62,13 +71,18 @@ func (s *AdminContentService) DeleteFairyTale(id string) error {
 	return s.db.Model(&models.Dongeng{}).Where("id = ?", id).Update("is_deleted", true).Error
 }
 
+// SetFairyTaleFree flips only the free flag; see SetArCardFree.
+func (s *AdminContentService) SetFairyTaleFree(id string, isFree bool) error {
+	return setContentFree(s.db, &models.Dongeng{}, id, isFree)
+}
+
 func (s *AdminContentService) ToggleFairyTaleVisibility(id string, hidden bool) error {
 	return s.db.Model(&models.Dongeng{}).Where("id = ?", id).Update("hidden", hidden).Error
 }
 
 // ─── AR Cards ────────────────────────────────────────────────────────────────
 
-func (s *AdminContentService) ListArCards(search string, page, perPage int) ([]models.ArCards, int64, error) {
+func (s *AdminContentService) ListArCards(search string, page, perPage int) ([]AdminArCardView, int64, error) {
 	var items []models.ArCards
 	var total int64
 	q := s.db.Model(&models.ArCards{})
@@ -76,14 +90,23 @@ func (s *AdminContentService) ListArCards(search string, page, perPage int) ([]m
 		q = q.Where("title ILIKE ?", "%"+search+"%")
 	}
 	q.Count(&total)
-	err := q.Limit(perPage).Offset((page - 1) * perPage).Order("created_at DESC").Find(&items).Error
-	return items, total, err
+	if err := q.Limit(perPage).Offset((page - 1) * perPage).Order("created_at DESC").Find(&items).Error; err != nil {
+		return nil, total, err
+	}
+	views, err := s.arCardViews(items)
+	return views, total, err
 }
 
-func (s *AdminContentService) GetArCard(id string) (*models.ArCards, error) {
+func (s *AdminContentService) GetArCard(id string) (*AdminArCardView, error) {
 	var item models.ArCards
-	err := s.db.Where("id = ?", id).First(&item).Error
-	return &item, err
+	if err := s.db.Where("id = ?", id).First(&item).Error; err != nil {
+		return &AdminArCardView{ArCards: item}, err
+	}
+	views, err := s.arCardViews([]models.ArCards{item})
+	if err != nil {
+		return nil, err
+	}
+	return &views[0], nil
 }
 
 func (s *AdminContentService) CreateArCard(input models.ArCards) (*models.ArCards, error) {
@@ -110,6 +133,12 @@ func (s *AdminContentService) UpdateArCard(id string, input models.ArCards) (*mo
 
 func (s *AdminContentService) DeleteArCard(id string) error {
 	return s.db.Where("id = ?", id).Delete(&models.ArCards{}).Error
+}
+
+// SetArCardFree flips only the free flag. The product, its orders and the
+// entitlements of earlier buyers are left alone, so it is fully reversible.
+func (s *AdminContentService) SetArCardFree(id string, isFree bool) error {
+	return setContentFree(s.db, &models.ArCards{}, id, isFree)
 }
 
 func (s *AdminContentService) ToggleArCardVisibility(id string, hidden bool) error {
@@ -420,4 +449,126 @@ func (s *AdminContentService) DeleteDongengCategory(id string) error {
 
 func (s *AdminContentService) ToggleDongengCategoryVisibility(id string, hidden bool) error {
 	return s.db.Model(&models.DongengCategory{}).Where("id = ?", id).Update("is_deleted", hidden).Error
+}
+
+// ─── Content access (free / paid) ────────────────────────────────────────────
+
+// Effective access of a piece of content, as shown to admins. Two things can
+// make content free — the is_free flag and having no product — so the
+// backoffice shows one computed value instead of both.
+const (
+	AccessFree          = "FREE"            // flagged free (a product may still exist)
+	AccessFreeNoProduct = "FREE_NO_PRODUCT" // not flagged, but nothing is for sale
+	AccessPaid          = "PAID"            // active product
+	AccessPaidInactive  = "PAID_INACTIVE"   // product withdrawn from sale
+)
+
+// AdminArCardView is an AR card with its effective access. PriceIdr (from
+// ArCards) carries the product's price whenever a product exists, including
+// for a card flagged free, so the admin can see what it was sold for.
+type AdminArCardView struct {
+	models.ArCards
+	Access string `json:"access"`
+}
+
+// AdminFairyTaleView is a dongeng with its effective access and product price.
+type AdminFairyTaleView struct {
+	models.Dongeng
+	Access   string `json:"access"`
+	PriceIdr *int64 `json:"price_idr,omitempty"`
+}
+
+type contentProduct struct {
+	ContentID string
+	PriceIdr  int64
+	IsActive  bool
+}
+
+func accessFor(isFree bool, p *contentProduct) string {
+	switch {
+	case isFree:
+		return AccessFree
+	case p == nil:
+		return AccessFreeNoProduct
+	case p.IsActive:
+		return AccessPaid
+	default:
+		return AccessPaidInactive
+	}
+}
+
+// setContentFree updates is_free on the given content table (model is
+// &models.ArCards{} or &models.Dongeng{}), erroring when the row is missing.
+func setContentFree(db *gorm.DB, model interface{}, id string, isFree bool) error {
+	res := db.Model(model).Where("id = ?", id).Update("is_free", isFree)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("not found")
+	}
+	return nil
+}
+
+func (s *AdminContentService) arCardViews(items []models.ArCards) ([]AdminArCardView, error) {
+	views := make([]AdminArCardView, len(items))
+	if len(items) == 0 {
+		return views, nil
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	var rows []contentProduct
+	err := s.db.Raw(`SELECT pac.ar_card_id AS content_id, p.price_idr, p.is_active
+		FROM product_ar_cards pac JOIN products p ON p.id = pac.product_id
+		WHERE pac.ar_card_id IN ?`, ids).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]*contentProduct, len(rows))
+	for i := range rows {
+		byID[rows[i].ContentID] = &rows[i]
+	}
+	for i, it := range items {
+		p := byID[it.ID]
+		if p != nil {
+			price := p.PriceIdr
+			it.PriceIdr = &price
+		}
+		views[i] = AdminArCardView{ArCards: it, Access: accessFor(it.IsFree, p)}
+	}
+	return views, nil
+}
+
+func (s *AdminContentService) fairyTaleViews(items []models.Dongeng) ([]AdminFairyTaleView, error) {
+	views := make([]AdminFairyTaleView, len(items))
+	if len(items) == 0 {
+		return views, nil
+	}
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID.String()
+	}
+	var rows []contentProduct
+	err := s.db.Raw(`SELECT pd.dongeng_id::text AS content_id, p.price_idr, p.is_active
+		FROM product_dongengs pd JOIN products p ON p.id = pd.product_id
+		WHERE pd.dongeng_id::text IN ?`, ids).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]*contentProduct, len(rows))
+	for i := range rows {
+		byID[rows[i].ContentID] = &rows[i]
+	}
+	for i, it := range items {
+		p := byID[it.ID.String()]
+		view := AdminFairyTaleView{Dongeng: it, Access: accessFor(it.IsFree, p)}
+		if p != nil {
+			price := p.PriceIdr
+			view.PriceIdr = &price
+		}
+		views[i] = view
+	}
+	return views, nil
 }

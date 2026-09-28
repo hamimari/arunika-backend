@@ -42,7 +42,7 @@ func TestAccountDeletionService_DeleteAccount_Success(t *testing.T) {
 	for _, table := range []string{
 		"user_badges", "tracing_progress", "counting_progress", "dongeng_play_history",
 		"user_entitlements", "user_subscriptions", "notifications", "fcm_tokens",
-		"user_sessions", "refresh_tokens",
+		"user_sessions", "refresh_tokens", "user_consents",
 	} {
 		mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "` + table + `" WHERE user_id = $1`)).
 			WithArgs(userID).

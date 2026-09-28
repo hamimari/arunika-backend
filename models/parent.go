@@ -19,6 +19,10 @@ type Parent struct {
 	Address  string     `json:"address"`
 	City     string     `json:"city"`
 	Children []Children `json:"children" gorm:"foreignKey:ParentId"`
+	// Consents are inserted with the parent at signup, in the same
+	// transaction, so an account never exists half-recorded. Never
+	// serialized: they carry the client's IP and user agent.
+	Consents []UserConsent `json:"-" gorm:"foreignKey:UserID"`
 	// EmailVerified reports whether the account holder has proven control of
 	// EmailAddress. It gates password-reset delivery and nothing else —
 	// entitlements key off the user ID, so an unverified account still has

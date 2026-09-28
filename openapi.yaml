@@ -87,8 +87,22 @@ components:
           type: boolean
           description: Gates password-reset delivery only; never content or purchases.
         is_subscribed: { type: boolean }
+        consent_required:
+          type: boolean
+          description: True when the user has not accepted the current version of every legal document (UU PDP); the app blocks on a consent screen until POST /user/consent.
         children: { type: array, items: { type: object } }
       description: The password hash is deliberately never serialized.
+    ConsentInput:
+      type: object
+      required: [terms_version, privacy_version, parental_version]
+      properties:
+        terms_version: { type: string, example: "2026-10-01" }
+        privacy_version: { type: string, example: "2026-10-01" }
+        parental_version:
+          type: string
+          example: "2026-10-01"
+          description: Version of the parent/guardian declaration consenting to processing of the child's data.
+      description: The document versions the client showed the user when they accepted.
     Order:
       type: object
       required: [id, status, amount_idr]
@@ -499,6 +513,45 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-cards/{id}/free:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Make an AR card free or premium
+      description: >-
+        Flips only the free flag; the product, its orders and earlier buyers'
+        entitlements are untouched, so it is reversible. is_free is required:
+        an absent value is a 400, never "false". Saving the item with PUT
+        never changes this flag. 404 when the item does not exist.
+      operationId: patchadmin_content_ar_cards_id_free
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_free]
+              properties:
+                is_free: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_free: { type: boolean }
         "4XX":
           description: Client error
           content:
@@ -1262,6 +1315,45 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/fairy-tales/{id}/free:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Make a dongeng free or premium
+      description: >-
+        Flips only the free flag; the product, its orders and earlier buyers'
+        entitlements are untouched, so it is reversible. is_free is required:
+        an absent value is a 400, never "false". Saving the item with PUT
+        never changes this flag. 404 when the item does not exist.
+      operationId: patchadmin_content_fairy_tales_id_free
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_free]
+              properties:
+                is_free: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_free: { type: boolean }
         "4XX":
           description: Client error
           content:
@@ -2176,6 +2268,18 @@ paths:
       summary: Create auth signup
       operationId: postauth_signup
       security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consent:
+                  $ref: "#/components/schemas/ConsentInput"
+              description: >-
+                consent is optional so older app builds can still sign up; an
+                account without it reports consent_required=true. When
+                present it must carry all three versions, otherwise 400.
       responses:
         "201":
           description: Success
@@ -2874,6 +2978,31 @@ paths:
                 type: object
                 properties:
                   data: { $ref: "#/components/schemas/UserProfile" }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /user/consent:
+    post:
+      tags: [users]
+      summary: Record acceptance of the current legal documents
+      operationId: postuser_consent
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsentInput" }
+      responses:
+        "200":
+          description: Consent recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consent_required: { type: boolean }
         "4XX":
           description: Client error
           content:

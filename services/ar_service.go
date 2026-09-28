@@ -69,6 +69,12 @@ func (s *ArService) GetAllCategories() ([]models.ArCardCategory, error) {
 // value read from the DB is never trusted here. The display-only strike
 // price is resolved alongside the price from the request's loaded rules.
 func (s *ArService) applyUnlocked(card *models.ArCards, userID *uuid.UUID, rules StrikeRules) error {
+	// Flagged free wins over any product: unlocked for everyone, and no
+	// product/price is exposed, so the app shows no lock or buy button.
+	if card.IsFree {
+		card.IsUnlocked = true
+		return nil
+	}
 	product, err := s.productService.ResolveByArCardID(card.ID)
 	if err != nil {
 		return err
