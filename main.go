@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -141,6 +142,12 @@ func validateEnv() {
 	}
 	if missing {
 		log.Fatal("aborting: one or more required environment variables are missing")
+	}
+
+	// APP_DOMAIN prefixes every emailed link (verify-email, reset-password).
+	// Without a scheme, mail clients render it as plain text, not a link.
+	if domain := os.Getenv("APP_DOMAIN"); !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		log.Fatalf("aborting: APP_DOMAIN %q must start with http:// or https://", domain)
 	}
 
 	// Warn if JWT_SECRET is too short (minimum 32 characters recommended)
