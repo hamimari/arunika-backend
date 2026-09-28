@@ -30,6 +30,15 @@ func FindProductByID(db *gorm.DB, id uuid.UUID) (*Product, error) {
 	return &p, nil
 }
 
+// FindProductByPlayProductID returns the product mapped to a Google Play SKU.
+func FindProductByPlayProductID(db *gorm.DB, playProductID string) (*Product, error) {
+	var p Product
+	if err := db.Where("play_product_id = ?", playProductID).First(&p).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 func FindAllProducts(db *gorm.DB) ([]Product, error) {
 	var products []Product
 	result := db.Order("created_at desc").Find(&products)

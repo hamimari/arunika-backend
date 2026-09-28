@@ -43,6 +43,16 @@ type FakePlay struct {
 	subscriptions map[string]string // purchase token -> expiryTimeMillis
 	voided        []map[string]any
 	errors        map[string]int // purchase token -> HTTP status to return instead
+
+	refundedOrders map[string]bool   // Play order id -> refunded via orders.refund
+	revokedTokens  map[string]string // subscription token -> "fullRefund" | "proratedRefund"
+	refuse         map[string]int    // Play order id or token -> HTTP status for a refund/revoke
+	orderTotals    map[string]string // Play order id -> total units (IDR) orders.get reports
+
+	// acceptPrefix, when set, makes any unregistered product token with this
+	// prefix a valid purchase — for suites outside this process (Playwright)
+	// that can't register tokens themselves.
+	acceptPrefix string
 }
 
 // NewFakePlay starts the fake server bound to loopback only, for tests that
@@ -73,9 +83,13 @@ func newFakePlay(listenAddr, advertiseHost string) (*FakePlay, error) {
 	}
 
 	f := &FakePlay{
-		products:      map[string]int{},
-		subscriptions: map[string]string{},
-		errors:        map[string]int{},
+		products:       map[string]int{},
+		subscriptions:  map[string]string{},
+		errors:         map[string]int{},
+		refundedOrders: map[string]bool{},
+		revokedTokens:  map[string]string{},
+		refuse:         map[string]int{},
+		orderTotals:    map[string]string{},
 	}
 
 	listener, err := net.Listen("tcp", listenAddr)
@@ -174,6 +188,55 @@ func (f *FakePlay) Void(token string) {
 	})
 }
 
+// AcceptPurchasesWithPrefix treats any product purchase token starting with
+// prefix as validly purchased, without registering it first.
+func (f *FakePlay) AcceptPurchasesWithPrefix(prefix string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.acceptPrefix = prefix
+}
+
+// PlayOrderID is the Play order id this fake reports for a purchase token.
+func PlayOrderID(token string) string { return "GPA.FAKE-" + token }
+
+// OrderTotal sets the total (in IDR units) orders.get reports for an order.
+func (f *FakePlay) OrderTotal(playOrderID, units string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.orderTotals[playOrderID] = units
+}
+
+// RefuseRefund makes a refund (by Play order id) or revoke (by purchase
+// token) fail with the given HTTP status.
+func (f *FakePlay) RefuseRefund(idOrToken string, status int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refuse[idOrToken] = status
+}
+
+// AlreadyRefunded models an order refunded outside the app (e.g. in Play
+// Console): Google refuses a second refund, and orders.get reports REFUNDED.
+func (f *FakePlay) AlreadyRefunded(playOrderID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refundedOrders[playOrderID] = true
+	f.refuse[playOrderID] = http.StatusBadRequest
+}
+
+// Refunded reports whether orders.refund was called for the Play order id.
+func (f *FakePlay) Refunded(playOrderID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refundedOrders[playOrderID]
+}
+
+// Revoked returns how a subscription token was revoked ("" if it wasn't).
+func (f *FakePlay) Revoked(token string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.revokedTokens[token]
+}
+
 // ─── Serving ──────────────────────────────────────────────────────────────────
 
 func (f *FakePlay) handle(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +247,64 @@ func (f *FakePlay) handle(w http.ResponseWriter, r *http.Request) {
 			"token_type":   "Bearer",
 			"expires_in":   3600,
 		})
+
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":refund") && strings.Contains(r.URL.Path, "/orders/"):
+		id := strings.TrimSuffix(lastSegment(r.URL.Path), ":refund")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if status, refused := f.refuse[id]; refused {
+			writeJSON(w, status, map[string]any{"error": map[string]any{"message": "refund not allowed"}})
+			return
+		}
+		f.refundedOrders[id] = true
+		writeJSON(w, http.StatusOK, map[string]any{})
+
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":revoke") && strings.Contains(r.URL.Path, "/purchases/subscriptionsv2/tokens/"):
+		token := strings.TrimSuffix(lastSegment(r.URL.Path), ":revoke")
+		var body struct {
+			RevocationContext map[string]any `json:"revocationContext"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if status, refused := f.refuse[token]; refused {
+			writeJSON(w, status, map[string]any{"error": map[string]any{"message": "revoke not allowed"}})
+			return
+		}
+		kind := "fullRefund"
+		if _, prorated := body.RevocationContext["proratedRefund"]; prorated {
+			kind = "proratedRefund"
+		}
+		f.revokedTokens[token] = kind
+		writeJSON(w, http.StatusOK, map[string]any{})
+
+	case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/orders/"):
+		id := lastSegment(r.URL.Path)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		total := f.orderTotals[id]
+		if total == "" {
+			total = "0"
+		}
+		refunded := f.refundedOrders[id] || f.revokedTokens[strings.TrimPrefix(id, "GPA.FAKE-")] != ""
+		order := map[string]any{
+			"orderId": id,
+			"state":   "PROCESSED",
+			"total":   map[string]any{"currencyCode": "IDR", "units": total},
+			"tax":     map[string]any{"currencyCode": "IDR", "units": "0"},
+		}
+		if refunded {
+			order["state"] = "REFUNDED"
+			order["orderHistory"] = map[string]any{"refundEvent": map[string]any{
+				"eventTime":    "2026-09-28T00:00:00Z",
+				"refundReason": "OTHER",
+				"refundDetails": map[string]any{
+					"total": map[string]any{"currencyCode": "IDR", "units": total},
+					"tax":   map[string]any{"currencyCode": "IDR", "units": "0"},
+				},
+			}}
+		}
+		writeJSON(w, http.StatusOK, order)
 
 	case strings.Contains(r.URL.Path, "/purchases/voidedpurchases"):
 		f.mu.Lock()
@@ -199,6 +320,9 @@ func (f *FakePlay) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state, known := f.products[token]
+		if !known && f.acceptPrefix != "" && strings.HasPrefix(token, f.acceptPrefix) {
+			state, known = 0, true
+		}
 		if !known {
 			// Google returns 410 Gone for a token it does not recognise.
 			writeJSON(w, http.StatusGone, map[string]any{

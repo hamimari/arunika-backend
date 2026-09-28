@@ -248,3 +248,35 @@ func TestSubscriber_IsRefusedAPurchaseTheyDoNotNeed(t *testing.T) {
 	assert.Equal(t, "google_play", sub["provider"])
 	assert.Equal(t, false, sub["can_renew"], "a month out, and Play renews it anyway")
 }
+
+// An admin refunds a Google Play purchase from the backoffice API: Google is
+// asked to refund, the card locks again for the user, and the refund is on
+// record with the admin's reason.
+func TestRefund_AdminRefundsAPlayPurchaseAndAccessIsRemoved(t *testing.T) {
+	s := Up(t)
+	sess := s.Login(FreeUserEmail, SeedUserPassword)
+	s.FakePlay.Purchased("e2e-tok-refund")
+	res := s.PlayPurchase(sess, "/payment/play/create-product", "product_id", PaidProduct1ID, PaidProduct1ID, "e2e-tok-refund")
+	require.Equal(t, http.StatusOK, res.Code, "verify: %s", string(res.Body))
+	orderID := res.Data()["id"].(string)
+	require.Equal(t, true, FindByID(s.GET("/ar/cards", sess.Token).List(), PaidArCard1ID)["is_unlocked"])
+
+	admin := s.AdminLogin()
+	refund := s.POST("/admin/orders/"+orderID+"/refund", admin, map[string]string{"reason": "Pengguna salah beli kartu"})
+	require.Equal(t, http.StatusOK, refund.Code, "body: %s", string(refund.Body))
+	assert.Equal(t, "SUCCEEDED", refund.Data()["status"])
+
+	assert.True(t, s.FakePlay.Refunded("GPA.FAKE-e2e-tok-refund"), "Google must be asked to refund")
+	assert.Equal(t, false, FindByID(s.GET("/ar/cards", sess.Token).List(), PaidArCard1ID)["is_unlocked"],
+		"the refunded card locks again")
+	assert.Equal(t, 1, s.Count(`SELECT COUNT(*) FROM order_refunds WHERE order_id = $1 AND source = 'ADMIN' AND reason IS NOT NULL`, orderID))
+}
+
+// Midtrans stays closed by default in the real stack.
+func TestMidtransCheckout_ClosedByDefault(t *testing.T) {
+	s := Up(t)
+	sess := s.Login(FreeUserEmail, SeedUserPassword)
+	res := s.POST("/payment/create-product", sess.Token, map[string]string{"product_id": PaidProduct1ID})
+	assert.Equal(t, http.StatusForbidden, res.Code, "body: %s", string(res.Body))
+	assert.Equal(t, "ALTERNATIVE_BILLING_DISABLED", res.JSON()["code"])
+}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"arunika_backend/services"
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -45,10 +46,11 @@ func (h *AdminProductHandler) Get(c *gin.Context) {
 // Body: { "feature_code": "AR_CARD"|"DONGENG", "price_idr": 29000, "ar_card_id": "...", "dongeng_id": "..." }
 func (h *AdminProductHandler) Create(c *gin.Context) {
 	var body struct {
-		FeatureCode string  `json:"feature_code" binding:"required"`
-		PriceIdr    int64   `json:"price_idr"    binding:"required"`
-		ArCardID    string  `json:"ar_card_id"`
-		DongengID   *string `json:"dongeng_id"`
+		FeatureCode   string  `json:"feature_code" binding:"required"`
+		PriceIdr      int64   `json:"price_idr"    binding:"required"`
+		ArCardID      string  `json:"ar_card_id"`
+		DongengID     *string `json:"dongeng_id"`
+		PlayProductID *string `json:"play_product_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -56,9 +58,10 @@ func (h *AdminProductHandler) Create(c *gin.Context) {
 	}
 
 	input := services.CreateProductInput{
-		FeatureCode: body.FeatureCode,
-		PriceIdr:    body.PriceIdr,
-		ArCardID:    body.ArCardID,
+		FeatureCode:   body.FeatureCode,
+		PriceIdr:      body.PriceIdr,
+		ArCardID:      body.ArCardID,
+		PlayProductID: body.PlayProductID,
 	}
 	if body.DongengID != nil && *body.DongengID != "" {
 		dongengID, err := uuid.Parse(*body.DongengID)
@@ -70,6 +73,10 @@ func (h *AdminProductHandler) Create(c *gin.Context) {
 	}
 
 	product, err := h.svc.Create(input)
+	if services.IsValidationError(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -90,13 +97,24 @@ func (h *AdminProductHandler) Update(c *gin.Context) {
 	}
 	var body struct {
 		PriceIdr int64 `json:"price_idr" binding:"required"`
+		// PlayProductID: absent leaves the mapping alone, null or "" clears
+		// it, a string sets it.
+		PlayProductID json.RawMessage `json:"play_product_id"`
 		services.StrikeInput
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	product, err := h.svc.Update(id, body.PriceIdr, body.StrikeInput)
+	var play services.PlayProductUpdate
+	if len(body.PlayProductID) > 0 {
+		play.Set = true
+		if err := json.Unmarshal(body.PlayProductID, &play.SKU); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "play_product_id must be a string or null"})
+			return
+		}
+	}
+	product, err := h.svc.Update(id, body.PriceIdr, body.StrikeInput, play)
 	if services.IsValidationError(err) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

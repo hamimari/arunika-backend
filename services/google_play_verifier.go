@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -130,6 +131,58 @@ type playPurchaseVerifier interface {
 	VerifySubscriptionPurchase(ctx context.Context, subscriptionID, purchaseToken string) (*PlaySubscriptionPurchase, error)
 	ReportExternalTransaction(ctx context.Context, externalTransactionID string, req CreateExternalTransactionRequest) error
 	ListVoidedPurchases(ctx context.Context, since time.Time) ([]VoidedPurchase, error)
+	RefundOrder(ctx context.Context, playOrderID string, revoke bool) error
+	RevokeSubscriptionPurchase(ctx context.Context, purchaseToken string, prorated bool) error
+	GetOrder(ctx context.Context, playOrderID string) (*PlayOrder, error)
+}
+
+// PlayMoney mirrors google.type.Money as the Orders API returns it.
+type PlayMoney struct {
+	CurrencyCode string `json:"currencyCode"`
+	Units        string `json:"units"`
+	Nanos        int64  `json:"nanos"`
+}
+
+// Amount returns the value as a float (units + nanos), or nil when unset.
+func (m *PlayMoney) Amount() *float64 {
+	if m == nil || m.Units == "" && m.Nanos == 0 {
+		return nil
+	}
+	units, err := strconv.ParseFloat(m.Units, 64)
+	if err != nil {
+		units = 0
+	}
+	v := units + float64(m.Nanos)/1e9
+	return &v
+}
+
+// PlayOrder mirrors the fields of the Orders API resource that refunds are
+// recorded from — see
+// https://developers.google.com/android-publisher/api-ref/rest/v3/orders.
+// State is e.g. PROCESSED, PENDING_REFUND, PARTIALLY_REFUNDED, REFUNDED.
+type PlayOrder struct {
+	OrderID      string     `json:"orderId"`
+	State        string     `json:"state"`
+	Total        *PlayMoney `json:"total"`
+	Tax          *PlayMoney `json:"tax"`
+	OrderHistory struct {
+		RefundEvent *struct {
+			EventTime     string `json:"eventTime"`
+			RefundReason  string `json:"refundReason"`
+			RefundDetails *struct {
+				Total *PlayMoney `json:"total"`
+				Tax   *PlayMoney `json:"tax"`
+			} `json:"refundDetails"`
+		} `json:"refundEvent"`
+	} `json:"orderHistory"`
+
+	// Raw is the response body as Google sent it, kept for the audit record.
+	Raw json.RawMessage `json:"-"`
+}
+
+// IsRefunded reports whether Google considers the order (fully) refunded.
+func (o *PlayOrder) IsRefunded() bool {
+	return o != nil && (o.State == "REFUNDED" || o.OrderHistory.RefundEvent != nil)
 }
 
 // VoidedPurchase mirrors the fields needed from
@@ -339,4 +392,41 @@ func (v *GooglePlayVerifier) ListVoidedPurchases(ctx context.Context, since time
 		pageToken = out.TokenPagination.NextPageToken
 	}
 	return all, nil
+}
+
+// RefundOrder refunds a one-time purchase in full via orders.refund. With
+// revoke, Google also takes the item away. Google's response body is empty.
+func (v *GooglePlayVerifier) RefundOrder(ctx context.Context, playOrderID string, revoke bool) error {
+	path := fmt.Sprintf("/androidpublisher/v3/applications/%s/orders/%s:refund?revoke=%t",
+		androidPackageName(), url.PathEscape(playOrderID), revoke)
+	return v.post(ctx, path, struct{}{})
+}
+
+// RevokeSubscriptionPurchase ends a subscription immediately and refunds it
+// — the latest charge in full, or prorated for the unused time — via
+// purchases.subscriptionsv2.revoke. Google's response body is empty.
+func (v *GooglePlayVerifier) RevokeSubscriptionPurchase(ctx context.Context, purchaseToken string, prorated bool) error {
+	path := fmt.Sprintf("/androidpublisher/v3/applications/%s/purchases/subscriptionsv2/tokens/%s:revoke",
+		androidPackageName(), url.PathEscape(purchaseToken))
+	kind := "fullRefund"
+	if prorated {
+		kind = "proratedRefund"
+	}
+	return v.post(ctx, path, map[string]any{"revocationContext": map[string]any{kind: struct{}{}}})
+}
+
+// GetOrder reads an order (state, amounts, refund event) via orders.get.
+func (v *GooglePlayVerifier) GetOrder(ctx context.Context, playOrderID string) (*PlayOrder, error) {
+	path := fmt.Sprintf("/androidpublisher/v3/applications/%s/orders/%s",
+		androidPackageName(), url.PathEscape(playOrderID))
+	var raw json.RawMessage
+	if err := v.get(ctx, path, &raw); err != nil {
+		return nil, err
+	}
+	var order PlayOrder
+	if err := json.Unmarshal(raw, &order); err != nil {
+		return nil, fmt.Errorf("decode order: %w", err)
+	}
+	order.Raw = raw
+	return &order, nil
 }

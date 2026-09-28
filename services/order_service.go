@@ -33,8 +33,11 @@ type AdminOrderView struct {
 	ProductName *string    `json:"product_name,omitempty"`
 	PackageID   *uuid.UUID `json:"package_id,omitempty"`
 	PackageName *string    `json:"package_name,omitempty"`
-	AmountIdr   int64      `json:"amount_idr"`
-	Status      string     `json:"status"`
+	// PackageType is "content" or "subscription" for a package order — the
+	// backoffice offers a prorated refund only for subscriptions.
+	PackageType *string `json:"package_type,omitempty"`
+	AmountIdr   int64   `json:"amount_idr"`
+	Status      string  `json:"status"`
 	// Provider is which payment rail this order was created against
 	// ("midtrans" | "google_play") — drives which single sync action the
 	// backoffice offers for it.
@@ -43,9 +46,12 @@ type AdminOrderView struct {
 	// file for this order (never the token itself) — lets the backoffice
 	// sync a Play order in one click instead of asking an admin to paste
 	// one in manually.
-	HasPurchaseToken bool      `json:"has_purchase_token"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	HasPurchaseToken bool `json:"has_purchase_token"`
+	// RefundCount is how many refund records (any status) the order has —
+	// the backoffice shows a "Refunds" view when it is non-zero.
+	RefundCount int64     `json:"refund_count"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // List returns a paginated, optionally status-filtered and searched list of
@@ -115,7 +121,25 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 		parentByID[p.ID] = p
 	}
 
+	orderIDs := make([]uuid.UUID, len(orders))
+	for i, o := range orders {
+		orderIDs[i] = o.ID
+	}
+	var refundCounts []struct {
+		OrderID uuid.UUID
+		Count   int64
+	}
+	if err := s.db.Model(&models.OrderRefund{}).Select("order_id, COUNT(*) AS count").
+		Where("order_id IN ?", orderIDs).Group("order_id").Scan(&refundCounts).Error; err != nil {
+		return nil, err
+	}
+	refundCountByOrder := make(map[uuid.UUID]int64, len(refundCounts))
+	for _, rc := range refundCounts {
+		refundCountByOrder[rc.OrderID] = rc.Count
+	}
+
 	packageNameByID := make(map[string]string)
+	packageTypeByID := make(map[string]string)
 	if len(packageIDs) > 0 {
 		var packages []models.PremiumPackage
 		if err := s.db.Where("id IN ?", packageIDs).Find(&packages).Error; err != nil {
@@ -123,6 +147,7 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 		}
 		for _, pkg := range packages {
 			packageNameByID[pkg.ID] = pkg.Name
+			packageTypeByID[pkg.ID] = pkg.Type
 		}
 	}
 
@@ -136,6 +161,7 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 			Status:           o.Status,
 			Provider:         o.Provider,
 			HasPurchaseToken: o.PurchaseToken != nil && *o.PurchaseToken != "",
+			RefundCount:      refundCountByOrder[o.ID],
 			CreatedAt:        o.CreatedAt,
 			UpdatedAt:        o.UpdatedAt,
 		}
@@ -152,6 +178,9 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 		if o.PackageID != nil {
 			if name, ok := packageNameByID[o.PackageID.String()]; ok {
 				view.PackageName = &name
+			}
+			if pt, ok := packageTypeByID[o.PackageID.String()]; ok {
+				view.PackageType = &pt
 			}
 		}
 		views[i] = view

@@ -96,6 +96,7 @@ func (s *ArService) applyUnlocked(card *models.ArCards, userID *uuid.UUID, rules
 
 	card.ProductID = &product.ID
 	card.PriceIdr = &product.PriceIdr
+	card.PlayProductID = product.PlayProductID
 	card.StrikeDisplay = rules.Resolve(models.StrikeScopeArCard, product.PriceIdr, product.StrikeOverride, time.Now())
 	card.IsUnlocked = unlocked
 	return nil

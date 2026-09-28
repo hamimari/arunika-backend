@@ -49,6 +49,8 @@ func TestAdminOrderHandler_List_Success(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE id IN ($1)`)).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(parentCols()))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT order_id, COUNT(*) AS count FROM "order_refunds" WHERE order_id IN`)).
+		WillReturnRows(sqlmock.NewRows([]string{"order_id", "count"}))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -180,6 +182,8 @@ func TestAdminOrderHandler_Sync_AlreadySettled(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "parents" WHERE id IN ($1)`)).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(parentCols()))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT order_id, COUNT(*) AS count FROM "order_refunds" WHERE order_id IN`)).
+		WillReturnRows(sqlmock.NewRows([]string{"order_id", "count"}))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

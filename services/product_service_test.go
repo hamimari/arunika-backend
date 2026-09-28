@@ -320,7 +320,7 @@ func TestProductService_Update_InheritStrike_Success(t *testing.T) {
 		WithArgs(id, 1).
 		WillReturnRows(sqlmock.NewRows(productColumns()).AddRow(id, featureID, 39000, true, now, now))
 
-	product, err := svc.Update(id, 39000, StrikeInput{})
+	product, err := svc.Update(id, 39000, StrikeInput{}, PlayProductUpdate{})
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(39000), product.PriceIdr)

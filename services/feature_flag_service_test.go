@@ -62,3 +62,24 @@ func TestFeatureFlagService_SetEnabled_UnknownKey(t *testing.T) {
 	_, err := svc.SetEnabled("nope", true)
 	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
+
+func TestFeatureFlagService_IsEnabled_UnknownKeyIsOff(t *testing.T) {
+	db, mock := setupMockDB(t)
+	svc := NewFeatureFlagService(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "app_feature_flags" WHERE key = $1`)).
+		WithArgs("alternative_billing", 1).
+		WillReturnRows(sqlmock.NewRows(featureFlagCols()))
+	on, err := svc.IsEnabled("alternative_billing")
+	require.NoError(t, err)
+	assert.False(t, on, "a missing flag must fail closed")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "app_feature_flags" WHERE key = $1`)).
+		WithArgs("alternative_billing", 1).
+		WillReturnRows(sqlmock.NewRows(featureFlagCols()).
+			AddRow("alternative_billing", "Midtrans", "", true, time.Now()))
+	on, err = svc.IsEnabled("alternative_billing")
+	require.NoError(t, err)
+	assert.True(t, on)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

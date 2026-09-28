@@ -30,6 +30,15 @@ type fakePlayVerifier struct {
 
 	voided    []VoidedPurchase
 	voidedErr error
+
+	refundErr      error
+	refundedOrder  string
+	refundRevoke   bool
+	revokeErr      error
+	revokedToken   string
+	revokeProrated bool
+	order          *PlayOrder
+	orderErr       error
 }
 
 func (f *fakePlayVerifier) VerifyProductPurchase(ctx context.Context, productID, purchaseToken string) (*PlayProductPurchase, error) {
@@ -49,6 +58,20 @@ func (f *fakePlayVerifier) VerifySubscriptionPurchase(ctx context.Context, subsc
 
 func (f *fakePlayVerifier) ListVoidedPurchases(ctx context.Context, since time.Time) ([]VoidedPurchase, error) {
 	return f.voided, f.voidedErr
+}
+
+func (f *fakePlayVerifier) RefundOrder(ctx context.Context, playOrderID string, revoke bool) error {
+	f.refundedOrder, f.refundRevoke = playOrderID, revoke
+	return f.refundErr
+}
+
+func (f *fakePlayVerifier) RevokeSubscriptionPurchase(ctx context.Context, purchaseToken string, prorated bool) error {
+	f.revokedToken, f.revokeProrated = purchaseToken, prorated
+	return f.revokeErr
+}
+
+func (f *fakePlayVerifier) GetOrder(ctx context.Context, playOrderID string) (*PlayOrder, error) {
+	return f.order, f.orderErr
 }
 
 func userSubscriptionCols() []string {
@@ -455,6 +478,11 @@ func TestPaymentService_ReconcileVoidedPurchases_RevokesContentEntitlement(t *te
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "order_refunds"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
+
 	count, err := svc.ReconcileVoidedPurchases(context.Background(), now.Add(-24*time.Hour))
 
 	require.NoError(t, err)
@@ -495,6 +523,11 @@ func TestPaymentService_ReconcileVoidedPurchases_RevokesSubscription(t *testing.
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "user_subscriptions" SET`)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "order_refunds"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
 	mock.ExpectCommit()
 
 	count, err := svc.ReconcileVoidedPurchases(context.Background(), now.Add(-24*time.Hour))
@@ -610,6 +643,18 @@ func TestPaymentService_HandlePlayRTDN_Revoked_RevokesSubscription(t *testing.T)
 		WithArgs(orderID, 1).
 		WillReturnRows(sqlmock.NewRows(orderCols()).
 			AddRow(orderID, userID, nil, packageID, 39000, models.OrderStatusPaid, now, now))
+
+	// A revocation of a PAID order is a refund: the order moves to REFUNDED
+	// and a GOOGLE_RTDN refund is recorded before access is revoked.
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "orders" SET "status"=$1,"updated_at"=$2 WHERE "id" = $3`)).
+		WithArgs(models.OrderStatusRefunded, sqlmock.AnyArg(), orderID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "order_refunds"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
+	mock.ExpectCommit()
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "user_subscriptions" SET`)).

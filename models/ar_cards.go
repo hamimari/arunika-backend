@@ -24,11 +24,14 @@ type ArCards struct {
 	// per-request by ArService from products/user_entitlements/user_subscriptions
 	// (see ArService.applyUnlocked). ProductID/PriceIdr are only set when the
 	// card has a linked (purchasable) product; nil means free content.
-	IsUnlocked   bool       `gorm:"-" json:"is_unlocked"`
-	ProductID    *uuid.UUID `gorm:"-" json:"product_id,omitempty"`
-	PriceIdr     *int64     `gorm:"-" json:"price_idr,omitempty"`
-	Description  string     `gorm:"type:text"                  json:"description"`
-	PrintableImg string     `gorm:"column:printable_img;type:text;default:''" json:"printable_img"`
+	IsUnlocked bool       `gorm:"-" json:"is_unlocked"`
+	ProductID  *uuid.UUID `gorm:"-" json:"product_id,omitempty"`
+	PriceIdr   *int64     `gorm:"-" json:"price_idr,omitempty"`
+	// PlayProductID is the product's Google Play SKU — without it the app
+	// can't buy the card through Google Play Billing.
+	PlayProductID *string `gorm:"-" json:"play_product_id,omitempty"`
+	Description   string  `gorm:"type:text"                  json:"description"`
+	PrintableImg  string  `gorm:"column:printable_img;type:text;default:''" json:"printable_img"`
 	// Structured category FKs (from V12 migration)
 	CategoryID     *uuid.UUID      `gorm:"column:category_id;type:uuid"     json:"category_id,omitempty"`
 	SubCategoryID  *uuid.UUID      `gorm:"column:sub_category_id;type:uuid" json:"sub_category_id,omitempty"`

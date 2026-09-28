@@ -18,6 +18,7 @@ type PaymentHandler struct {
 	premiumPackService  *services.PremiumPackService
 	userService         *services.UserService
 	productService      *services.ProductService
+	featureFlags        *services.FeatureFlagService
 }
 
 // sendNotificationAsync dispatches a push notification without blocking the
@@ -43,8 +44,27 @@ type CreateProductPaymentRequest struct {
 	ProductID string `json:"product_id" binding:"required"`
 }
 
-func NewPaymentHandler(ps *services.PaymentService, ns *services.NotificationService, pp *services.PremiumPackService, us *services.UserService, prs *services.ProductService) *PaymentHandler {
-	return &PaymentHandler{paymentService: ps, notificationService: ns, premiumPackService: pp, userService: us, productService: prs}
+func NewPaymentHandler(ps *services.PaymentService, ns *services.NotificationService, pp *services.PremiumPackService, us *services.UserService, prs *services.ProductService, ff *services.FeatureFlagService) *PaymentHandler {
+	return &PaymentHandler{paymentService: ps, notificationService: ns, premiumPackService: pp, userService: us, productService: prs, featureFlags: ff}
+}
+
+// alternativeBillingAllowed writes a 403 and returns false while the
+// alternative_billing flag is off: the Midtrans checkout may only be offered
+// alongside Google Play Billing under User Choice Billing, so it is closed
+// unless an admin has deliberately enabled it. Fails closed on a DB error.
+func (h *PaymentHandler) alternativeBillingAllowed(c *gin.Context) bool {
+	enabled, err := h.featureFlags.IsEnabled(models.FeatureFlagAlternativeBilling)
+	if err == nil && enabled {
+		return true
+	}
+	if err != nil {
+		slog.Error("alternative billing flag check failed", "error", err)
+	}
+	c.JSON(http.StatusForbidden, gin.H{
+		"error": "this payment method is not available",
+		"code":  "ALTERNATIVE_BILLING_DISABLED",
+	})
+	return false
 }
 
 // respondSubscriptionActive answers a purchase attempt by a user whose
@@ -70,8 +90,11 @@ func (h *PaymentHandler) checkPurchaseAllowed(c *gin.Context, userID uuid.UUID, 
 	return true
 }
 
-// CreateTransaction handles POST /payment/create
+// CreateTransaction handles POST /payment/create (Midtrans checkout)
 func (h *PaymentHandler) CreateTransaction(c *gin.Context) {
+	if !h.alternativeBillingAllowed(c) {
+		return
+	}
 	userIDVal, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -113,6 +136,9 @@ func (h *PaymentHandler) CreateTransaction(c *gin.Context) {
 
 // CreateProductTransaction handles POST /payment/create-product (single-product checkout)
 func (h *PaymentHandler) CreateProductTransaction(c *gin.Context) {
+	if !h.alternativeBillingAllowed(c) {
+		return
+	}
 	userIDVal, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})

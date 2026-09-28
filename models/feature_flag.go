@@ -5,6 +5,9 @@ import "time"
 const (
 	FeatureFlagPrintableCards = "printable_cards"
 	FeatureFlagQRScan         = "qr_scan"
+	// FeatureFlagAlternativeBilling gates the Midtrans checkout (V58). Off
+	// unless explicitly enabled — see IsEnabled.
+	FeatureFlagAlternativeBilling = "alternative_billing"
 )
 
 // FeatureFlag is a remote on/off switch for an app feature (see V44).

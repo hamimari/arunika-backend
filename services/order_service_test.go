@@ -41,6 +41,8 @@ func TestOrderService_List_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(parentCols()).
 			AddRow(userID, now, now, false, "Budi", "0812", "budi@mail.com", "hash", "Jl. A", "Jakarta"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT order_id, COUNT(*) AS count FROM "order_refunds" WHERE order_id IN`)).
+		WillReturnRows(sqlmock.NewRows([]string{"order_id", "count"}))
 
 	items, total, err := svc.List("", "", 1, 20)
 
@@ -93,6 +95,8 @@ func TestOrderService_List_WithSearch(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(parentCols()).
 			AddRow(userID, now, now, false, "Budi", "0812", "budi@mail.com", "hash", "Jl. A", "Jakarta"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT order_id, COUNT(*) AS count FROM "order_refunds" WHERE order_id IN`)).
+		WillReturnRows(sqlmock.NewRows([]string{"order_id", "count"}))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "premium_packages" WHERE id IN ($1)`)).
 		WithArgs(packageID.String()).
@@ -211,6 +215,8 @@ func TestOrderService_EnrichOne_NoProductOrPackage(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(parentCols()).
 			AddRow(userID, now, now, false, "Budi", "0812", "budi@mail.com", "hash", "Jl. A", "Jakarta"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT order_id, COUNT(*) AS count FROM "order_refunds" WHERE order_id IN`)).
+		WillReturnRows(sqlmock.NewRows([]string{"order_id", "count"}))
 
 	order := models.Order{ID: uuid.New(), UserID: userID, AmountIdr: 29000, Status: "PAID", CreatedAt: now, UpdatedAt: now}
 	view, err := svc.EnrichOne(order)

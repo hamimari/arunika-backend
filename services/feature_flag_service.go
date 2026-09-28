@@ -2,6 +2,7 @@ package services
 
 import (
 	"arunika_backend/models"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -53,4 +54,18 @@ func (s *FeatureFlagService) SetEnabled(key string, enabled bool) (*models.Featu
 		return nil, err
 	}
 	return &flag, nil
+}
+
+// IsEnabled reports whether the flag key is on. An unknown key is off —
+// callers use this for switches that must fail closed.
+func (s *FeatureFlagService) IsEnabled(key string) (bool, error) {
+	var flag models.FeatureFlag
+	err := s.db.Where("key = ?", key).First(&flag).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return flag.IsEnabled, nil
 }

@@ -300,3 +300,52 @@ func TestPurchase_UnmappedProduct_IsRejectedBeforeAnyOrderExists(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, res.Code,
 		"a product with no Play SKU must not produce an order")
 }
+
+// The app buys a single AR card or dongeng through Google Play only if the
+// list response carries the product's Play SKU.
+func TestPublicAPIs_ExposeThePlaySKUForSingleItems(t *testing.T) {
+	t.Parallel()
+	env := NewAPIEnv(t)
+	cardID := paidArCard(t, env, 15000)
+	dongengID := paidDongeng(t, env, 39000)
+	require.NoError(t, env.DB.Exec(`UPDATE products SET play_product_id = 'sku_card'
+		WHERE id IN (SELECT product_id FROM product_ar_cards WHERE ar_card_id = ?)`, cardID).Error)
+	require.NoError(t, env.DB.Exec(`UPDATE products SET play_product_id = 'sku_tale'
+		WHERE id IN (SELECT product_id FROM product_dongengs WHERE dongeng_id = ?)`, dongengID).Error)
+
+	cards := env.GET("/ar/cards", "")
+	require.Equal(t, http.StatusOK, cards.Code, string(cards.Body))
+	assert.Equal(t, "sku_card", findByID(t, cards.JSON()["data"].([]interface{}), cardID)["play_product_id"])
+
+	detail := env.GET("/ar/cards/"+cardID, "")
+	assert.Equal(t, "sku_card", detail.JSON()["play_product_id"])
+
+	tales := env.GET("/fairy-tales", "")
+	require.Equal(t, http.StatusOK, tales.Code, string(tales.Body))
+	assert.Equal(t, "sku_tale", findByID(t, tales.JSON()["data"].([]interface{}), dongengID.String())["play_product_id"])
+}
+
+// If the app is killed between Google completing a single-product purchase
+// and the app reporting it, the next start re-submits {sku, token} with no
+// order id; the backend must find the pending order by SKU.
+func TestPurchase_SingleProduct_RecoveredWithoutAnOrderID(t *testing.T) {
+	t.Parallel()
+	env := NewAPIEnv(t)
+	account := env.Register(t)
+	product, sku := playProduct(t, env)
+
+	created := env.POST("/payment/play/create-product", account.Token,
+		map[string]string{"product_id": product.ID.String()})
+	require.Equal(t, http.StatusOK, created.Code, string(created.Body))
+
+	purchaseToken := token(t)
+	fakePlay.Purchased(purchaseToken)
+	verified := env.POST("/payment/play/verify", account.Token, map[string]string{
+		"product_id": sku, "purchase_token": purchaseToken,
+	})
+	require.Equal(t, http.StatusOK, verified.Code, string(verified.Body))
+
+	has, err := models.HasEntitlement(env.DB, uuid.MustParse(account.ID), product.ID)
+	require.NoError(t, err)
+	assert.True(t, has, "the recovered purchase must unlock the product")
+}

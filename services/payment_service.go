@@ -475,7 +475,8 @@ func (s *PaymentService) CreatePlayProductOrder(user *models.Parent, product *mo
 }
 
 // ResolvePendingPlayOrder finds the most recent PENDING order the user has
-// against the package mapped to playProductID. It recovers an order id the
+// against the package — or, failing that, the single product — mapped to
+// playProductID. It recovers an order id the
 // app lost track of client-side — e.g. Google Play finished the purchase
 // but the app was killed (or lost network) before it could report the
 // order id back alongside the purchase token. Per Google's guidance to
@@ -483,17 +484,13 @@ func (s *PaymentService) CreatePlayProductOrder(user *models.Parent, product *mo
 // that began them, the app re-submits {product_id, purchase_token} without
 // an order id in that case and relies on this lookup instead.
 func (s *PaymentService) ResolvePendingPlayOrder(userID uuid.UUID, playProductID string) (uuid.UUID, error) {
-	pkg, err := models.FindPremiumPackageByPlayProductID(s.db, playProductID)
+	column, targetID, err := s.playSKUTarget(playProductID)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("find package: %w", err)
-	}
-	packageID, err := uuid.Parse(pkg.ID)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("parse package id: %w", err)
+		return uuid.Nil, err
 	}
 
 	var order models.Order
-	err = s.db.Where("user_id = ? AND package_id = ? AND status = ?", userID, packageID, models.OrderStatusPending).
+	err = s.db.Where("user_id = ? AND "+column+" = ? AND status = ?", userID, targetID, models.OrderStatusPending).
 		Order("created_at DESC").
 		First(&order).Error
 	if err != nil {
@@ -556,22 +553,14 @@ func (s *PaymentService) reconcileVoidedPurchase(v VoidedPurchase) (bool, error)
 	if err := s.db.Model(order).Update("status", models.OrderStatusRefunded).Error; err != nil {
 		return false, fmt.Errorf("update order status: %w", err)
 	}
-
-	if order.PackageID != nil {
-		pkg, err := models.FindPremiumPackageByID(s.db, order.PackageID.String())
-		if err != nil {
-			return false, fmt.Errorf("load package: %w", err)
-		}
-		if pkg.Type == "subscription" {
-			if err := s.entitlementService.RevokeSubscription(order.UserID); err != nil {
-				return false, fmt.Errorf("revoke subscription: %w", err)
-			}
-			return true, nil
-		}
+	if err := s.revokeOrderAccess(order); err != nil {
+		return false, err
 	}
-	if err := s.entitlementService.RevokeEntitlementForOrder(order.ID); err != nil {
-		return false, fmt.Errorf("revoke entitlement: %w", err)
+	playOrderID := v.OrderID
+	if playOrderID == "" {
+		playOrderID = payment.ProviderOrderID
 	}
+	s.recordGoogleRefund(order, models.RefundSourceGoogleVoided, playOrderID, &v)
 	return true, nil
 }
 
@@ -714,6 +703,23 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 	return &result, nil
 }
 
+// playSKUTarget resolves a Google Play SKU to what it sells — a package
+// (orders.package_id) or, failing that, a single product (orders.product_id).
+func (s *PaymentService) playSKUTarget(playProductID string) (column string, id uuid.UUID, err error) {
+	if pkg, pkgErr := models.FindPremiumPackageByPlayProductID(s.db, playProductID); pkgErr == nil {
+		id, err = uuid.Parse(pkg.ID)
+		if err != nil {
+			return "", uuid.Nil, fmt.Errorf("parse package id: %w", err)
+		}
+		return "package_id", id, nil
+	}
+	product, err := models.FindProductByPlayProductID(s.db, playProductID)
+	if err != nil {
+		return "", uuid.Nil, fmt.Errorf("find package or product: %w", err)
+	}
+	return "product_id", product.ID, nil
+}
+
 // ── Google Play Real-time Developer Notifications ───────────────────────────
 
 type playDeveloperNotification struct {
@@ -769,7 +775,17 @@ func (s *PaymentService) HandlePlayRTDN(ctx context.Context, raw []byte) error {
 		// Auto-renew turned off; access continues until expires_at, and the
 		// subscription becomes renewable (via Play) near the end.
 		return s.entitlementService.SetAutoRenew(order.UserID, false)
-	case playNotifSubscriptionRevoked, playNotifSubscriptionExpired:
+	case playNotifSubscriptionRevoked:
+		// Revoked before expiry — a refund. Record it once, when the order
+		// first leaves PAID (an admin refund already moved it on).
+		if order.Status == models.OrderStatusPaid {
+			if err := s.db.Model(order).Update("status", models.OrderStatusRefunded).Error; err != nil {
+				return fmt.Errorf("update order status: %w", err)
+			}
+			s.recordGoogleRefund(order, models.RefundSourceGoogleRTDN, payment.ProviderOrderID, nil)
+		}
+		return s.entitlementService.RevokeSubscription(order.UserID)
+	case playNotifSubscriptionExpired:
 		return s.entitlementService.RevokeSubscription(order.UserID)
 	case playNotifSubscriptionRecovered, playNotifSubscriptionRenewed, playNotifSubscriptionRestarted, playNotifSubscriptionPurchased:
 		result, err := s.playVerifier.VerifySubscriptionPurchase(ctx, sub.SubscriptionID, sub.PurchaseToken)

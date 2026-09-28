@@ -1415,6 +1415,85 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/refund:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [admin]
+      summary: Refund a Google Play order
+      description: >-
+        Body {reason, refund_type}. reason is required (at least 10 characters);
+        refund_type is FULL (default) or PRORATED (subscriptions only). One-time
+        purchases use orders.refund with revoke; subscriptions use
+        subscriptionsv2.revoke. On success the order becomes REFUNDED and access is
+        removed. 400 invalid input, 409 not refundable or already refunded, 502
+        when Google refuses (the refund is recorded as FAILED).
+      operationId: postadmin_orders_id_refund
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/refunds:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [admin]
+      summary: List an order's refunds
+      description: >-
+        Refund records (admin-issued and Google-initiated), newest first, with
+        the issuing admin's email and Google's refunded amounts and state.
+      operationId: getadmin_orders_id_refunds
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/order-refunds/{id}/sync:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [admin]
+      summary: Sync refund details from Google
+      description: >-
+        Re-reads the refund's details (amounts, state, reason) with orders.get,
+        and completes a refund Google accepted but that was left REQUESTED.
+      operationId: postadmin_order_refunds_id_sync
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /admin/strike-price-rules:
     get:
       tags: [admin]
@@ -1811,6 +1890,11 @@ paths:
     put:
       tags: [admin]
       summary: Update admin products
+      description: >-
+        Body {price_idr, strike_*, play_product_id}. play_product_id is the
+        Google Play SKU selling the product: absent leaves the mapping
+        unchanged, null or blank clears it. 400 when the SKU is already used
+        by another product or a package.
       operationId: putadmin_products_id
       security: [{ adminAuth: [] }]
       responses:
@@ -2514,6 +2598,8 @@ paths:
         409 with code SUBSCRIPTION_ACTIVE when the user has an active
         subscription, except a subscription-package renewal inside the last 7
         days of a non-Play subscription that does not auto-renew.
+        403 with code ALTERNATIVE_BILLING_DISABLED (and no order) while the
+        alternative_billing feature flag is off — this is the Midtrans checkout.
       operationId: postpayment_create
       security: [{ bearerAuth: [] }]
       responses:
@@ -2535,6 +2621,8 @@ paths:
         409 with code SUBSCRIPTION_ACTIVE when the user has an active
         subscription, except a subscription-package renewal inside the last 7
         days of a non-Play subscription that does not auto-renew.
+        403 with code ALTERNATIVE_BILLING_DISABLED (and no order) while the
+        alternative_billing feature flag is off — this is the Midtrans checkout.
       operationId: postpayment_create_product
       security: [{ bearerAuth: [] }]
       responses:

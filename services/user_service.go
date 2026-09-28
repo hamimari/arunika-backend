@@ -85,6 +85,11 @@ func (s *UserService) buildSubscriptionDetail(sub *models.UserSubscription) *Sub
 		provider = models.OrderProviderMidtrans
 	}
 	renewal := RenewalFor(sub, time.Now())
+	// A Midtrans subscription can only be renewed in-app through the
+	// Midtrans checkout, which is closed while alternative billing is off.
+	if renewal.CanRenew && provider != models.OrderProviderGooglePlay && !s.alternativeBillingEnabled() {
+		renewal.CanRenew = false
+	}
 	detail := &SubscriptionDetail{
 		PlanName:      planName,
 		Status:        sub.Status,
@@ -187,4 +192,14 @@ func (s *UserService) updateUserTx(req *models.Parent) (*models.Parent, error) {
 	}
 
 	return &parent, nil
+}
+
+// alternativeBillingEnabled reports whether the Midtrans checkout is open
+// (the alternative_billing flag). Unknown or unreadable means off.
+func (s *UserService) alternativeBillingEnabled() bool {
+	var flag models.FeatureFlag
+	if err := s.db.Where("key = ?", models.FeatureFlagAlternativeBilling).First(&flag).Error; err != nil {
+		return false
+	}
+	return flag.IsEnabled
 }

@@ -120,7 +120,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	r.GET("/badges", middlewares.JWTAuthMiddleware(rdb), badgeHandler.GetBadges)
 
 	// ── Payment ──────────────────────────────────────────────────────────────
-	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService, reg.PremiumPackService, reg.UserService, reg.ProductService)
+	paymentHandler := handlers.NewPaymentHandler(reg.PaymentService, reg.NotificationService, reg.PremiumPackService, reg.UserService, reg.ProductService, reg.FeatureFlagService)
 	r.POST("/payment/webhook", paymentHandler.Webhook)    // no JWT — called by Midtrans
 	r.POST("/payment/play/rtdn", paymentHandler.PlayRTDN) // no JWT — called by Google Cloud Pub/Sub
 	payment := r.Group("/payment")
@@ -217,6 +217,9 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.POST("/orders/:id/sync", adminOrderHandler.Sync)
 		admin.POST("/orders/:id/recover-play", adminOrderHandler.RecoverPlayPurchase)
 		admin.POST("/orders/reconcile-play", adminOrderHandler.ReconcilePlayPurchases)
+		admin.POST("/orders/:id/refund", adminOrderHandler.Refund)
+		admin.GET("/orders/:id/refunds", adminOrderHandler.ListRefunds)
+		admin.POST("/order-refunds/:id/sync", adminOrderHandler.SyncRefund)
 
 		// Users
 		admin.GET("/users", adminUserHandler.ListUsers)

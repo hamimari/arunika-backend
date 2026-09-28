@@ -37,6 +37,7 @@ type DongengResponse struct {
 	IsUnlocked           bool                    `json:"is_unlocked"`
 	ProductID            *uuid.UUID              `json:"product_id,omitempty"`
 	PriceIdr             *int64                  `json:"price_idr,omitempty"`
+	PlayProductID        *string                 `json:"play_product_id,omitempty"`
 	CategoryId           string                  `json:"category_id"`
 	DongengCategoryID    *uuid.UUID              `json:"dongeng_category_id,omitempty"`
 	DongengSubCategoryID *uuid.UUID              `json:"dongeng_sub_category_id,omitempty"`
@@ -153,6 +154,7 @@ func (s *DongengService) GetFairyTales(search string, page, perPage int, userID 
 		if product != nil {
 			items[i].ProductID = &product.ID
 			items[i].PriceIdr = &product.PriceIdr
+			items[i].PlayProductID = product.PlayProductID
 			items[i].StrikeDisplay = rules.Resolve(models.StrikeScopeDongeng, product.PriceIdr, product.StrikeOverride, now)
 		}
 	}
@@ -247,6 +249,7 @@ func (s *DongengService) GetFairyTaleByID(id string, userID *uuid.UUID) (*Dongen
 		}
 		resp.ProductID = &product.ID
 		resp.PriceIdr = &product.PriceIdr
+		resp.PlayProductID = product.PlayProductID
 		resp.StrikeDisplay = rules.Resolve(models.StrikeScopeDongeng, product.PriceIdr, product.StrikeOverride, time.Now())
 	}
 	return resp, nil

@@ -290,8 +290,14 @@ func (s *EntitlementService) RevokeSubscription(userID uuid.UUID) error {
 // entitlements granted by orderID — used when Google Play reports the
 // purchase behind that order as voided (refund, chargeback, or Google's own
 // automatic refund of a purchase left unacknowledged for 3 days).
+//
+// The expiry is stamped with the database's NOW(), the same clock
+// HasEntitlement compares against (in SQL) — an app-server timestamp lets a
+// revoked entitlement stay active for as long as the app server's clock runs
+// ahead of the database's. (RevokeSubscription keeps the app clock: an
+// active subscription is checked in Go, and a revoked one is also 'free'.)
 func (s *EntitlementService) RevokeEntitlementForOrder(orderID uuid.UUID) error {
 	return s.db.Model(&models.UserEntitlement{}).
 		Where("source_order_id = ?", orderID).
-		Update("expires_at", time.Now()).Error
+		Update("expires_at", gorm.Expr("NOW()")).Error
 }

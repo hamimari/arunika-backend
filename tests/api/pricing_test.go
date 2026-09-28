@@ -140,6 +140,8 @@ func TestSubscriber_CanRenewOnlyInTheLastDays(t *testing.T) {
 	monthly := fixtures.NewPackage(t, env.DB, fixtures.AsSubscription(30), fixtures.WithPackagePlayProductID(
 		fmt.Sprintf("sub_%d", fixtures.NextSeq())))
 	renew := map[string]interface{}{"plan_name": monthly.Name, "amount": monthly.PriceIdr}
+	// Renewing through Midtrans exists only with alternative billing on.
+	enableAlternativeBilling(t, env)
 
 	early := env.Register(t)
 	subscribe(t, env, early, 20*24*time.Hour)
@@ -173,6 +175,47 @@ func TestProfile_ReportsTheRenewalWindow(t *testing.T) {
 		assert.Equal(t, false, sub["auto_renew"])
 		assert.NotNil(t, sub["renewable_from"])
 	}
+	// A Midtrans subscription renews through the Midtrans checkout, so it is
+	// only renewable while alternative billing is on.
+	check(5*24*time.Hour, false)
+	enableAlternativeBilling(t, env)
 	check(20*24*time.Hour, false)
 	check(5*24*time.Hour, true)
+}
+
+func enableAlternativeBilling(t *testing.T, env *Env) {
+	t.Helper()
+	require.NoError(t, env.DB.Exec(
+		`UPDATE app_feature_flags SET is_enabled = TRUE WHERE key = 'alternative_billing'`).Error)
+}
+
+func TestMidtransCheckout_IsClosedUntilAlternativeBillingIsEnabled(t *testing.T) {
+	t.Parallel()
+	env := NewAPIEnv(t)
+	account := env.Register(t)
+	product := fixtures.NewProduct(t, env.DB)
+	pkg := fixtures.NewPackage(t, env.DB)
+
+	for path, body := range map[string]interface{}{
+		"/payment/create-product": map[string]string{"product_id": product.ID.String()},
+		"/payment/create":         map[string]interface{}{"plan_name": pkg.Name, "amount": pkg.PriceIdr},
+	} {
+		res := env.POST(path, account.Token, body)
+		assert.Equal(t, http.StatusForbidden, res.Code, "%s: %s", path, string(res.Body))
+		assert.Equal(t, "ALTERNATIVE_BILLING_DISABLED", res.JSON()["code"], path)
+	}
+	var orders int64
+	require.NoError(t, env.DB.Model(&models.Order{}).Where("user_id = ?", account.ID).Count(&orders).Error)
+	assert.Zero(t, orders, "no Midtrans order may be created while alternative billing is off")
+
+	// Google Play is unaffected.
+	sku := fmt.Sprintf("sku_%d", fixtures.NextSeq())
+	playable := fixtures.NewProduct(t, env.DB, fixtures.WithPlayProductID(sku))
+	res := env.POST("/payment/play/create-product", account.Token, map[string]string{"product_id": playable.ID.String()})
+	assert.Equal(t, http.StatusOK, res.Code, string(res.Body))
+
+	enableAlternativeBilling(t, env)
+	res = env.POST("/payment/create-product", account.Token, map[string]string{"product_id": product.ID.String()})
+	assert.NotEqual(t, http.StatusForbidden, res.Code,
+		"with the flag on the checkout is open again (Midtrans itself isn't reachable here): %s", string(res.Body))
 }
