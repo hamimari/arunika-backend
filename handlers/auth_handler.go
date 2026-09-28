@@ -53,6 +53,10 @@ type Child struct {
 }
 
 type SignUpResponse struct {
+	// ID lets the app store the new user's id right away, as it does after
+	// login — without it the app can't fetch the fresh profile until the
+	// user signs in again.
+	ID           string  `json:"id"`
 	Name         string  `json:"name" binding:"required"`
 	PhoneNumber  string  `json:"phone_number" binding:"required"`
 	EmailAddress string  `json:"email" binding:"required"`
@@ -190,6 +194,7 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		return
 	}
 	response := SignUpResponse{
+		ID:           user.ID.String(),
 		Name:         user.Name,
 		PhoneNumber:  user.PhoneNumber,
 		EmailAddress: user.EmailAddress,

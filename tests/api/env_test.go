@@ -155,6 +155,7 @@ func (e *Env) PUT(path, token string, body interface{}) *Response {
 
 // Account is a registered user plus the credentials to act as them.
 type Account struct {
+	ID           string
 	Email        string
 	Password     string
 	Token        string
@@ -185,6 +186,7 @@ func (e *Env) Register(t *testing.T) *Account {
 
 	data := res.Data()
 	return &Account{
+		ID:           data["id"].(string),
 		Email:        email,
 		Password:     password,
 		Token:        data["token"].(string),

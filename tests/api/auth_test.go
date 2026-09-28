@@ -165,6 +165,19 @@ func TestAuth_Logout_RevokesTheAccessTokenImmediately(t *testing.T) {
 		"the same token must stop working the moment the user logs out")
 }
 
+// The app stores the returned id right after signup (as it does after
+// login) so it can fetch the new user's profile without a second sign-in.
+func TestAuth_Signup_ReturnsTheSameUserIDAsLogin(t *testing.T) {
+	t.Parallel()
+	env := NewAPIEnv(t)
+	account := env.Register(t)
+	require.NotEmpty(t, account.ID)
+
+	res := env.Login(t, account.Email, account.Password)
+	require.Equal(t, http.StatusOK, res.Code, "login: %s", string(res.Body))
+	assert.Equal(t, res.JSON()["user_id"], account.ID)
+}
+
 func TestAuth_Signup_DuplicateEmail_IsRejected(t *testing.T) {
 	t.Parallel()
 	env := NewAPIEnv(t)
