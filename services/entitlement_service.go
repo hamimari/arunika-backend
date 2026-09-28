@@ -13,6 +13,72 @@ type EntitlementService struct {
 	db *gorm.DB
 }
 
+// RenewalWindowDays is how long before expiry a subscription that won't
+// renew by itself may be renewed in-app. The new period is added on top of
+// the current expiry (see computeSubscriptionExpiry), so renewing early
+// never costs the user paid days.
+const RenewalWindowDays = 7
+
+// ErrSubscriptionActive is returned when a user with an active subscription
+// tries to start a purchase they don't need — they already have access to
+// all paid content. Handlers answer it with 409 SUBSCRIPTION_ACTIVE.
+var ErrSubscriptionActive = errors.New("subscription is already active")
+
+// SubscriptionRenewal describes whether sub is active and whether it may be
+// renewed in-app right now: only when it is active, won't auto-renew, and
+// is within RenewalWindowDays of expiry. A subscription with no expiry
+// (admin manual grant) is never renewable.
+type SubscriptionRenewal struct {
+	Active        bool
+	CanRenew      bool
+	RenewableFrom *time.Time
+}
+
+func RenewalFor(sub *models.UserSubscription, now time.Time) SubscriptionRenewal {
+	if sub == nil || sub.Status != "premium" {
+		return SubscriptionRenewal{}
+	}
+	if sub.ExpiresAt == nil {
+		return SubscriptionRenewal{Active: true}
+	}
+	if !sub.ExpiresAt.After(now) {
+		return SubscriptionRenewal{}
+	}
+	from := sub.ExpiresAt.AddDate(0, 0, -RenewalWindowDays)
+	return SubscriptionRenewal{
+		Active:        true,
+		CanRenew:      !sub.AutoRenew && !now.Before(from),
+		RenewableFrom: &from,
+	}
+}
+
+// CheckPurchaseAllowed returns ErrSubscriptionActive when userID has an
+// active subscription, unless this is an in-app renewal: a subscription
+// package (pkg non-nil, type subscription), paid outside Google Play
+// (viaPlay false — Play subscriptions renew through Play itself), for a
+// non-Play subscription inside its renewal window. pkg is nil for a
+// single-product purchase.
+func (s *EntitlementService) CheckPurchaseAllowed(userID uuid.UUID, pkg *models.PremiumPackage, viaPlay bool) error {
+	var sub models.UserSubscription
+	err := s.db.Where("user_id = ?", userID).First(&sub).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	renewal := RenewalFor(&sub, time.Now())
+	if !renewal.Active {
+		return nil
+	}
+	isRenewal := pkg != nil && pkg.Type == "subscription" && !viaPlay &&
+		renewal.CanRenew && sub.Provider != models.OrderProviderGooglePlay
+	if isRenewal {
+		return nil
+	}
+	return ErrSubscriptionActive
+}
+
 func NewEntitlementService(db *gorm.DB) *EntitlementService {
 	return &EntitlementService{db: db}
 }
@@ -56,7 +122,7 @@ func (s *EntitlementService) grantForPackage(tx *gorm.DB, order *models.Order) e
 		if pkg.DurationDays == nil {
 			return errors.New("subscription package missing duration_days")
 		}
-		return s.upsertSubscription(tx, order.UserID, *order.PackageID, *pkg.DurationDays)
+		return s.upsertSubscription(tx, order.UserID, *order.PackageID, *pkg.DurationDays, orderProvider(order))
 	default:
 		return errors.New("unknown package type: " + pkg.Type)
 	}
@@ -69,7 +135,7 @@ func (s *EntitlementService) grantForPackage(tx *gorm.DB, order *models.Order) e
 // early never costs the user days already paid for. A lapsed subscription
 // (or a brand-new one) extends from now instead, since there is no unused
 // remainder to preserve.
-func (s *EntitlementService) upsertSubscription(tx *gorm.DB, userID, packageID uuid.UUID, durationDays int) error {
+func (s *EntitlementService) upsertSubscription(tx *gorm.DB, userID, packageID uuid.UUID, durationDays int, provider string) error {
 	now := time.Now()
 
 	var sub models.UserSubscription
@@ -83,6 +149,7 @@ func (s *EntitlementService) upsertSubscription(tx *gorm.DB, userID, packageID u
 				ExpiresAt: &expiry,
 				PackageID: &packageID,
 				StartDate: &now,
+				Provider:  provider,
 			}
 			return tx.Create(&sub).Error
 		}
@@ -96,7 +163,17 @@ func (s *EntitlementService) upsertSubscription(tx *gorm.DB, userID, packageID u
 		"expires_at": expiry,
 		"package_id": packageID,
 		"start_date": now,
+		"provider":   provider,
 	}).Error
+}
+
+// orderProvider is the payment rail an order was placed on, defaulting to
+// Midtrans for orders predating the provider column.
+func orderProvider(order *models.Order) string {
+	if order.Provider == "" {
+		return models.OrderProviderMidtrans
+	}
+	return order.Provider
 }
 
 // computeSubscriptionExpiry returns the new expires_at for a subscription
@@ -148,7 +225,7 @@ func (s *EntitlementService) hasActiveSubscription(userID uuid.UUID) (bool, erro
 // UNIQUE, so running this on a separate connection while an uncommitted
 // upsertSubscription insert holds that index deadlocks — this blocks on the
 // index, and the transaction holding it blocks on this returning.
-func (s *EntitlementService) SyncSubscriptionExpiry(tx *gorm.DB, userID, packageID uuid.UUID, expiresAt time.Time) error {
+func (s *EntitlementService) SyncSubscriptionExpiry(tx *gorm.DB, userID, packageID uuid.UUID, expiresAt time.Time, autoRenew bool) error {
 	var sub models.UserSubscription
 	err := tx.Where("user_id = ?", userID).First(&sub).Error
 	if err != nil {
@@ -161,6 +238,8 @@ func (s *EntitlementService) SyncSubscriptionExpiry(tx *gorm.DB, userID, package
 			sub.ExpiresAt = &expiresAt
 			now := time.Now()
 			sub.StartDate = &now
+			sub.Provider = models.OrderProviderGooglePlay
+			sub.AutoRenew = autoRenew
 			return tx.Create(&sub).Error
 		}
 		return err
@@ -169,7 +248,18 @@ func (s *EntitlementService) SyncSubscriptionExpiry(tx *gorm.DB, userID, package
 		"status":     "premium",
 		"expires_at": expiresAt,
 		"package_id": packageID,
+		"provider":   models.OrderProviderGooglePlay,
+		"auto_renew": autoRenew,
 	}).Error
+}
+
+// SetAutoRenew records whether a Google Play subscription will renew by
+// itself — false after the user cancels in Play (access continues until
+// expires_at), true again once they resubscribe.
+func (s *EntitlementService) SetAutoRenew(userID uuid.UUID, autoRenew bool) error {
+	return s.db.Model(&models.UserSubscription{}).
+		Where("user_id = ?", userID).
+		Update("auto_renew", autoRenew).Error
 }
 
 // RevokeSubscription immediately ends a user's subscription access — used

@@ -1415,6 +1415,54 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /admin/strike-price-rules:
+    get:
+      tags: [admin]
+      summary: Get admin strike-price-rules
+      description: >-
+        The three global promotional strike-price rules (AR_CARD, DONGENG,
+        PACKAGE) with mode, value, starts_at, ends_at and a computed status
+        (OFF, SCHEDULED, ACTIVE, ENDED).
+      operationId: getadmin_strike_price_rules
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/strike-price-rules/{scope}:
+    parameters:
+      - name: scope
+        in: path
+        required: true
+        schema: { type: string, enum: [AR_CARD, DONGENG, PACKAGE] }
+    put:
+      tags: [admin]
+      summary: Update admin strike-price-rules
+      description: >-
+        Body {mode, value, starts_at, ends_at}. mode is NONE, PERCENT (value
+        1-90) or FIXED (value >= 1); PERCENT/FIXED need an ends_at in the
+        future, after starts_at, at most 90 days out. 404 for an unknown scope,
+        400 for an invalid rule.
+      operationId: putadmin_strike_price_rules_scope
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /admin/orders:
     get:
       tags: [admin]
@@ -2462,6 +2510,10 @@ paths:
     post:
       tags: [payments]
       summary: Create payment create
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
       operationId: postpayment_create
       security: [{ bearerAuth: [] }]
       responses:
@@ -2479,6 +2531,10 @@ paths:
     post:
       tags: [payments]
       summary: Create payment create-product
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
       operationId: postpayment_create_product
       security: [{ bearerAuth: [] }]
       responses:
@@ -2496,6 +2552,10 @@ paths:
     post:
       tags: [payments]
       summary: Create play create
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
       operationId: postpayment_play_create
       security: [{ bearerAuth: [] }]
       responses:
@@ -2513,6 +2573,10 @@ paths:
     post:
       tags: [payments]
       summary: Create play create-product
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
       operationId: postpayment_play_create_product
       security: [{ bearerAuth: [] }]
       responses:
@@ -2598,6 +2662,10 @@ paths:
     get:
       tags: [misc]
       summary: Get premium packs
+      description: >-
+        Each package includes nullable strike_price_idr, discount_percent and
+        promo_ends_at — a display-only promotional strike price that is never
+        charged. All three are null when no promo is active.
       operationId: getpremium_packs
       security: []
       responses:
@@ -2704,6 +2772,9 @@ paths:
     get:
       tags: [users]
       summary: Get user
+      description: >-
+        subscription includes provider, auto_renew, renewable_from, can_renew
+        and (for Google Play subscriptions) play_product_id.
       operationId: getuser_id
       security: [{ adminAuth: [] }]
       responses:

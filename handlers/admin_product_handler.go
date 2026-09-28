@@ -78,7 +78,10 @@ func (h *AdminProductHandler) Create(c *gin.Context) {
 }
 
 // PUT /admin/products/:id
-// Body: { "price_idr": 39000 }
+// Body: { "price_idr": 39000, "strike_mode": "PERCENT", "strike_value": 20,
+// "strike_starts_at": "...", "strike_ends_at": "..." }. strike_mode is
+// PERCENT|FIXED|NONE; a null/absent strike_mode clears the override so the
+// product inherits its global rule.
 func (h *AdminProductHandler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -87,12 +90,17 @@ func (h *AdminProductHandler) Update(c *gin.Context) {
 	}
 	var body struct {
 		PriceIdr int64 `json:"price_idr" binding:"required"`
+		services.StrikeInput
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	product, err := h.svc.UpdatePrice(id, body.PriceIdr)
+	product, err := h.svc.Update(id, body.PriceIdr, body.StrikeInput)
+	if services.IsValidationError(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return

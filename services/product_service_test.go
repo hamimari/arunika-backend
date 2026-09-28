@@ -300,9 +300,9 @@ func TestProductService_ListEnriched_Success(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// ─── UpdatePrice ────────────────────────────────────────────────────────────
+// ─── Update ────────────────────────────────────────────────────────────
 
-func TestProductService_UpdatePrice_Success(t *testing.T) {
+func TestProductService_Update_InheritStrike_Success(t *testing.T) {
 	gormDB, mock := setupMockDB(t)
 	svc := NewProductService(gormDB)
 
@@ -311,8 +311,8 @@ func TestProductService_UpdatePrice_Success(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "products" SET "price_idr"=$1,"updated_at"=$2 WHERE id = $3`)).
-		WithArgs(int64(39000), sqlmock.AnyArg(), id).
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "products" SET "price_idr"=$1,"strike_ends_at"=$2,"strike_mode"=$3,"strike_starts_at"=$4,"strike_value"=$5,"updated_at"=$6 WHERE id = $7`)).
+		WithArgs(int64(39000), nil, nil, nil, nil, sqlmock.AnyArg(), id).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -320,7 +320,7 @@ func TestProductService_UpdatePrice_Success(t *testing.T) {
 		WithArgs(id, 1).
 		WillReturnRows(sqlmock.NewRows(productColumns()).AddRow(id, featureID, 39000, true, now, now))
 
-	product, err := svc.UpdatePrice(id, 39000)
+	product, err := svc.Update(id, 39000, StrikeInput{})
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(39000), product.PriceIdr)

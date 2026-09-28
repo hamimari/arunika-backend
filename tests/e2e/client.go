@@ -86,6 +86,9 @@ func (s *Stack) POST(path, token string, body interface{}) *Resp {
 func (s *Stack) PATCH(path, token string, body interface{}) *Resp {
 	return s.do(http.MethodPatch, path, token, body)
 }
+func (s *Stack) PUT(path, token string, body interface{}) *Resp {
+	return s.do(http.MethodPut, path, token, body)
+}
 
 // DB opens a direct connection for asserting on state no endpoint exposes
 // (entitlement row counts, payment rows). Flows still act only through HTTP.

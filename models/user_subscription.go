@@ -16,8 +16,11 @@ type UserSubscription struct {
 	PackageID *uuid.UUID `gorm:"column:package_id;type:uuid"       json:"package_id,omitempty"`
 	StartDate *time.Time `gorm:"column:start_date"                 json:"start_date,omitempty"`
 	AutoRenew bool       `gorm:"column:auto_renew;not null;default:false" json:"auto_renew"`
-	CreatedAt time.Time  `gorm:"column:created_at"                 json:"created_at"`
-	UpdatedAt time.Time  `gorm:"column:updated_at"                 json:"updated_at"`
+	// Provider is the payment rail managing this subscription (V57):
+	// OrderProviderMidtrans or OrderProviderGooglePlay.
+	Provider  string    `gorm:"column:provider;not null;default:midtrans" json:"provider"`
+	CreatedAt time.Time `gorm:"column:created_at"                 json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"                 json:"updated_at"`
 }
 
 func (UserSubscription) TableName() string { return "user_subscriptions" }

@@ -2,6 +2,8 @@ package db_test
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,8 +112,13 @@ func TestMigrations_V55_ReapplyDoesNotVerifyNewAccounts(t *testing.T) {
 
 	paths, err := fixtures.VersionedMigrationFiles()
 	require.NoError(t, err)
-	v55 := paths[len(paths)-1]
-	require.Contains(t, v55, "V55__", "expected V55 to be the newest migration")
+	var v55 string
+	for _, p := range paths {
+		if strings.HasPrefix(filepath.Base(p), "V55__") {
+			v55 = p
+		}
+	}
+	require.NotEmpty(t, v55, "expected a V55 migration")
 
 	require.NoError(t, fixtures.ApplyFile(ctx, db, v55), "V55 must be safely re-runnable")
 

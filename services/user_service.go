@@ -28,6 +28,16 @@ type SubscriptionDetail struct {
 	Status    string     `json:"status"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	DaysLeft  *int       `json:"days_left,omitempty"`
+	// Renewal state, computed server-side so the app does no date math:
+	// Provider is midtrans|google_play; CanRenew is true only inside the
+	// last RenewalWindowDays of a subscription that won't auto-renew.
+	// PlayProductID is set for Play subscriptions so the app can open that
+	// subscription's page in Google Play.
+	Provider      string     `json:"provider"`
+	AutoRenew     bool       `json:"auto_renew"`
+	RenewableFrom *time.Time `json:"renewable_from,omitempty"`
+	CanRenew      bool       `json:"can_renew"`
+	PlayProductID *string    `json:"play_product_id,omitempty"`
 }
 
 func (s *UserService) GetUserByID(id string) (*models.Parent, string, *SubscriptionDetail, error) {
@@ -59,17 +69,33 @@ func (s *UserService) GetUserByID(id string) (*models.Parent, string, *Subscript
 
 func (s *UserService) buildSubscriptionDetail(sub *models.UserSubscription) *SubscriptionDetail {
 	planName := "Langganan Premium"
+	var playProductID *string
 	if sub.PackageID != nil {
 		var pkg models.PremiumPackage
-		if err := s.db.Select("name").Where("id = ?", sub.PackageID.String()).First(&pkg).Error; err == nil && pkg.Name != "" {
-			planName = pkg.Name
+		if err := s.db.Select("name", "play_product_id").Where("id = ?", sub.PackageID.String()).First(&pkg).Error; err == nil {
+			if pkg.Name != "" {
+				planName = pkg.Name
+			}
+			playProductID = pkg.PlayProductID
 		}
 	}
 
+	provider := sub.Provider
+	if provider == "" {
+		provider = models.OrderProviderMidtrans
+	}
+	renewal := RenewalFor(sub, time.Now())
 	detail := &SubscriptionDetail{
-		PlanName:  planName,
-		Status:    sub.Status,
-		ExpiresAt: sub.ExpiresAt,
+		PlanName:      planName,
+		Status:        sub.Status,
+		ExpiresAt:     sub.ExpiresAt,
+		Provider:      provider,
+		AutoRenew:     sub.AutoRenew,
+		RenewableFrom: renewal.RenewableFrom,
+		CanRenew:      renewal.CanRenew,
+	}
+	if provider == models.OrderProviderGooglePlay {
+		detail.PlayProductID = playProductID
 	}
 	if sub.ExpiresAt != nil {
 		days := int(math.Ceil(time.Until(*sub.ExpiresAt).Hours() / 24))

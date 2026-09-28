@@ -31,13 +31,15 @@ type ServiceRegistry struct {
 	EntitlementService     *services.EntitlementService
 	OrderService           *services.OrderService
 	FeatureFlagService     *services.FeatureFlagService
+	StrikePriceService     *services.StrikePriceService
 	AccountDeletionService *services.AccountDeletionService
 }
 
 func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 	notificationSvc := services.NewNotificationService(db)
 	entitlementSvc := services.NewEntitlementService(db)
-	productSvc := services.NewProductService(db)
+	strikeSvc := services.NewStrikePriceService(db)
+	productSvc := services.NewProductService(db).WithStrikePricing(strikeSvc)
 	orderSvc := services.NewOrderService(db, productSvc)
 	return &ServiceRegistry{
 		DB:                     db,
@@ -50,20 +52,21 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		AdminPaymentService:    services.NewAdminPaymentService(db),
 		BannerService:          services.NewBannerService(db),
 		UserService:            services.NewUserService(db),
-		ArService:              services.NewArService(db, productSvc, entitlementSvc),
+		ArService:              services.NewArService(db, productSvc, entitlementSvc).WithStrikePricing(strikeSvc),
 		CategoryService:        services.NewCategoryService(db),
-		DongengService:         services.NewDongengService(db, productSvc, entitlementSvc),
+		DongengService:         services.NewDongengService(db, productSvc, entitlementSvc).WithStrikePricing(strikeSvc),
 		TracingService:         services.NewTracingService(db),
 		CountingService:        services.NewCountingService(db),
 		BadgeService:           services.NewBadgeService(db),
 		PaymentService:         services.NewPaymentService(db, entitlementSvc),
 		NotificationService:    notificationSvc,
 		GrowthService:          services.NewGrowthService(db),
-		PremiumPackService:     services.NewPremiumPackService(db, orderSvc),
+		PremiumPackService:     services.NewPremiumPackService(db, orderSvc).WithStrikePricing(strikeSvc),
 		ProductService:         productSvc,
 		EntitlementService:     entitlementSvc,
 		OrderService:           orderSvc,
 		FeatureFlagService:     services.NewFeatureFlagService(db),
+		StrikePriceService:     strikeSvc,
 		AccountDeletionService: services.NewAccountDeletionService(db),
 	}
 }

@@ -17,6 +17,7 @@ type Product struct {
 	IsActive      bool      `gorm:"column:is_active;not null;default:true"         json:"is_active"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+	StrikeOverride
 }
 
 func (Product) TableName() string { return "products" }

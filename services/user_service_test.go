@@ -113,7 +113,7 @@ func TestUserService_GetUserByID_ActiveSubscription_IncludesPlanNameAndDaysLeft(
 			"id", "user_id", "status", "expires_at", "provider_order_id", "package_id", "start_date", "auto_renew", "created_at", "updated_at",
 		}).AddRow(uuid.New(), userID, "premium", expiresAt, "", packageID, now, false, now, now))
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT "name" FROM "premium_packages" WHERE id = $1 ORDER BY "premium_packages"."id" LIMIT $2`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT "name","play_product_id" FROM "premium_packages" WHERE id = $1 ORDER BY "premium_packages"."id" LIMIT $2`)).
 		WithArgs(packageID.String(), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Bulanan"))
 

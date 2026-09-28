@@ -183,8 +183,8 @@ func TestAdminProductHandler_Update_Success(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "products" SET "price_idr"=$1,"updated_at"=$2 WHERE id = $3`)).
-		WithArgs(int64(39000), sqlmock.AnyArg(), id).
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "products" SET "price_idr"=$1,"strike_ends_at"=$2,"strike_mode"=$3,"strike_starts_at"=$4,"strike_value"=$5,"updated_at"=$6 WHERE id = $7`)).
+		WithArgs(int64(39000), nil, nil, nil, nil, sqlmock.AnyArg(), id).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 

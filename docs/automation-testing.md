@@ -54,7 +54,7 @@ asserts policy:
 - **Horizontal escalation** — user A cannot read or change user B's orders,
   notifications, fairy-tale history, profile or child's growth records; a foreign
   resource must look exactly like a missing one.
-- **Vertical escalation** — every `/admin/*` route (93 today), discovered by
+- **Vertical escalation** — every `/admin/*` route (95 today), discovered by
   reading `Router.Routes()`, returns 403 to a user token. A new admin route is
   covered automatically; a floor on the route count stops discovery breaking
   silently.
@@ -79,7 +79,11 @@ Harness note: `TestMain` `chdir`s to the repo root because handlers load
 
 Starts the real compose stack (Postgres, Redis, Flyway, backend, backoffice) via
 `docker-compose.test.yml` and drives it over HTTP. The backoffice is built from
-`../arunika-backoffice`, so that repo must sit next to this one.
+`../arunika-backoffice`, so that repo must sit next to this one. Besides the five
+core flows it covers webhook/RTDN idempotency, the package type filter, admin
+grant/revoke, subscription unlocks, a backoffice strike-price promo reaching
+`/premium/packs` without changing the charged amount, and an active subscriber
+being refused a purchase (409 `SUBSCRIPTION_ACTIVE`).
 
 ```bash
 make test-e2e      # run the flows, tear down

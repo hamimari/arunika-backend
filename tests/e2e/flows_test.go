@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 	"testing"
@@ -193,4 +194,57 @@ func TestSubscriptionPurchase_UnlocksEverythingWithoutEntitlementRows(t *testing
 	assert.Equal(t, 0, s.Count(`SELECT COUNT(*) FROM user_entitlements WHERE user_id = $1`, FreeUserID),
 		"a subscription unlocks via user_subscriptions, not per-item entitlement rows")
 	assert.Equal(t, 1, s.Count(`SELECT COUNT(*) FROM user_subscriptions WHERE user_id = $1 AND status = 'premium'`, FreeUserID))
+}
+
+// A promo set from the backoffice reaches the app's package list as a
+// display-only strike price — and the order still charges the real price.
+func TestStrikePrice_AdminPromoReachesTheAppButIsNeverCharged(t *testing.T) {
+	s := Up(t)
+	admin := s.AdminLogin()
+
+	rule := s.PUT("/admin/strike-price-rules/PACKAGE", admin, map[string]interface{}{
+		"mode":    "PERCENT",
+		"value":   20,
+		"ends_at": time.Now().Add(7 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	})
+	require.Equal(t, http.StatusOK, rule.Code, "body: %s", string(rule.Body))
+	assert.Equal(t, "ACTIVE", rule.Data()["status"])
+
+	bundle := FindByID(s.GET("/premium/packs", "").List(), ContentBundlePackageID)
+	require.NotNil(t, bundle)
+	price := bundle["price_idr"].(float64)
+	require.NotNil(t, bundle["strike_price_idr"], "the promo must reach the public package list")
+	strike := bundle["strike_price_idr"].(float64)
+	assert.Greater(t, strike, price)
+	// The badge is derived from the rounded strike price, so it can differ
+	// from the configured 20% by a point.
+	assert.EqualValues(t, math.Round((strike-price)/strike*100), bundle["discount_percent"])
+	assert.Nil(t, bundle["strike_mode"], "how the promo is configured stays private")
+
+	sess := s.Login(FreeUserEmail, SeedUserPassword)
+	order := s.POST("/payment/play/create", sess.Token, map[string]string{"package_id": ContentBundlePackageID})
+	require.Equal(t, http.StatusOK, order.Code, "body: %s", string(order.Body))
+	assert.Equal(t, int(price), s.Count(`SELECT amount_idr FROM orders WHERE id = $1`, order.Data()["order_id"]),
+		"the order charges price_idr, never the strike price")
+}
+
+// An active subscriber already has everything: a further purchase is
+// refused before any order exists.
+func TestSubscriber_IsRefusedAPurchaseTheyDoNotNeed(t *testing.T) {
+	s := Up(t)
+	sess := s.Login(FreeUserEmail, SeedUserPassword)
+
+	expiry := strconv.FormatInt(time.Now().Add(30*24*time.Hour).UnixMilli(), 10)
+	s.FakePlay.SubscriptionActive("e2e-tok-sub-guard", expiry)
+	res := s.PlayPurchase(sess, "/payment/play/create", "package_id", SubscriptionPackageID, SubscriptionPlaySKU, "e2e-tok-sub-guard")
+	require.Equal(t, http.StatusOK, res.Code, "verify: %s", string(res.Body))
+
+	refused := s.POST("/payment/play/create-product", sess.Token, map[string]string{"product_id": PaidProduct1ID})
+	assert.Equal(t, http.StatusConflict, refused.Code, "body: %s", string(refused.Body))
+	assert.Equal(t, "SUBSCRIPTION_ACTIVE", refused.JSON()["code"])
+
+	profile := s.GET("/user/"+FreeUserID, sess.Token).Data()
+	sub := profile["subscription"].(map[string]interface{})
+	assert.Equal(t, "google_play", sub["provider"])
+	assert.Equal(t, false, sub["can_renew"], "a month out, and Play renews it anyway")
 }

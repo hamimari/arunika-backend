@@ -11,11 +11,19 @@ import (
 )
 
 type ProductService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	strike *StrikePriceService
 }
 
 func NewProductService(db *gorm.DB) *ProductService {
 	return &ProductService{db: db}
+}
+
+// WithStrikePricing makes the admin product list report each product's
+// effective strike price. Without it, only the stored override is shown.
+func (s *ProductService) WithStrikePricing(strike *StrikePriceService) *ProductService {
+	s.strike = strike
+	return s
 }
 
 const (
@@ -88,6 +96,10 @@ type AdminProductView struct {
 	IsActive    bool      `json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// The stored strike-price override and the effective strike price it
+	// resolves to right now (override, else the feature's global rule).
+	models.StrikeOverride
+	models.StrikeDisplay
 }
 
 // ListEnriched returns every product with its display name, feature code,
@@ -97,6 +109,11 @@ func (s *ProductService) ListEnriched() ([]AdminProductView, error) {
 	if err != nil {
 		return nil, err
 	}
+	rules, err := s.strike.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
 	views := make([]AdminProductView, len(products))
 	for i, p := range products {
 		view := AdminProductView{
@@ -106,10 +123,14 @@ func (s *ProductService) ListEnriched() ([]AdminProductView, error) {
 			IsActive:  p.IsActive,
 			CreatedAt: p.CreatedAt,
 			UpdatedAt: p.UpdatedAt,
+
+			StrikeOverride: p.StrikeOverride,
 		}
 		var feature models.Feature
 		if err := s.db.Where("id = ?", p.FeatureID).First(&feature).Error; err == nil {
 			view.FeatureCode = feature.Code
+			// Feature codes double as strike-price scopes (AR_CARD / DONGENG).
+			view.StrikeDisplay = rules.Resolve(feature.Code, p.PriceIdr, p.StrikeOverride, now)
 		}
 		if name, err := s.ResolveDisplayName(p.ID); err == nil {
 			view.DisplayName = name
@@ -139,10 +160,23 @@ func (s *ProductService) GetByID(id uuid.UUID) (*models.Product, error) {
 	return models.FindProductByID(s.db, id)
 }
 
-// UpdatePrice changes a product's price. The content it unlocks (its
-// AR card / dongeng mapping) is permanent and not editable.
-func (s *ProductService) UpdatePrice(id uuid.UUID, priceIdr int64) (*models.Product, error) {
-	if err := s.db.Model(&models.Product{}).Where("id = ?", id).Update("price_idr", priceIdr).Error; err != nil {
+// Update changes a product's price and its strike-price override (a nil
+// strike.Mode clears the override so the product inherits its scope's
+// global rule). The content it unlocks (its AR card / dongeng mapping) is
+// permanent and not editable.
+func (s *ProductService) Update(id uuid.UUID, priceIdr int64, strike StrikeInput) (*models.Product, error) {
+	o, err := strike.ToOverride(time.Now())
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.Model(&models.Product{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"price_idr":        priceIdr,
+		"strike_mode":      o.StrikeMode,
+		"strike_value":     o.StrikeValue,
+		"strike_starts_at": o.StrikeStartsAt,
+		"strike_ends_at":   o.StrikeEndsAt,
+	}).Error
+	if err != nil {
 		return nil, err
 	}
 	return models.FindProductByID(s.db, id)

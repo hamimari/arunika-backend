@@ -387,6 +387,13 @@ var ErrPackageNotPlayMapped = fmt.Errorf("package is not mapped to a Google Play
 // ErrProductNotPlayMapped is returned when a product has no play_product_id set.
 var ErrProductNotPlayMapped = fmt.Errorf("product is not mapped to a Google Play product")
 
+// CheckPurchaseAllowed blocks new orders from users whose active
+// subscription already covers everything, except in-app renewals (see
+// EntitlementService.CheckPurchaseAllowed). pkg is nil for a single product.
+func (s *PaymentService) CheckPurchaseAllowed(userID uuid.UUID, pkg *models.PremiumPackage, viaPlay bool) error {
+	return s.entitlementService.CheckPurchaseAllowed(userID, pkg, viaPlay)
+}
+
 // CreatePlayOrder creates a PENDING order (and its audit Payment row) for a
 // package the app is about to purchase via Google Play Billing. The
 // package must already have a play_product_id mapping.
@@ -631,6 +638,7 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 		var expiresAt *time.Time
 		var playProductID string
 		var isSubscription bool
+		var autoRenew bool
 
 		if order.PackageID != nil {
 			pkg, err := models.FindPremiumPackageByID(tx, order.PackageID.String())
@@ -641,14 +649,14 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 				return ErrPackageNotPlayMapped
 			}
 
-			valid, pID, expiry, err := s.verifyWithPlay(ctx, pkg, purchaseToken)
+			valid, pID, expiry, renewing, err := s.verifyWithPlay(ctx, pkg, purchaseToken)
 			if err != nil {
 				return fmt.Errorf("verify with google play: %w", err)
 			}
 			if !valid {
 				return ErrPlayPurchaseNotValid
 			}
-			providerOrderID, expiresAt, playProductID = pID, expiry, *pkg.PlayProductID
+			providerOrderID, expiresAt, playProductID, autoRenew = pID, expiry, *pkg.PlayProductID, renewing
 			isSubscription = pkg.Type == "subscription"
 		} else {
 			product, err := models.FindProductByID(tx, *order.ProductID)
@@ -694,7 +702,7 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 			return fmt.Errorf("grant entitlements: %w", err)
 		}
 		if isSubscription && expiresAt != nil {
-			if err := s.entitlementService.SyncSubscriptionExpiry(tx, order.UserID, *order.PackageID, *expiresAt); err != nil {
+			if err := s.entitlementService.SyncSubscriptionExpiry(tx, order.UserID, *order.PackageID, *expiresAt, autoRenew); err != nil {
 				return fmt.Errorf("sync subscription expiry: %w", err)
 			}
 		}
@@ -724,6 +732,7 @@ type playSubscriptionNotification struct {
 const (
 	playNotifSubscriptionRecovered = 1
 	playNotifSubscriptionRenewed   = 2
+	playNotifSubscriptionCanceled  = 3
 	playNotifSubscriptionPurchased = 4
 	playNotifSubscriptionRestarted = 7
 	playNotifSubscriptionRevoked   = 12
@@ -756,6 +765,10 @@ func (s *PaymentService) HandlePlayRTDN(ctx context.Context, raw []byte) error {
 	}
 
 	switch sub.NotificationType {
+	case playNotifSubscriptionCanceled:
+		// Auto-renew turned off; access continues until expires_at, and the
+		// subscription becomes renewable (via Play) near the end.
+		return s.entitlementService.SetAutoRenew(order.UserID, false)
 	case playNotifSubscriptionRevoked, playNotifSubscriptionExpired:
 		return s.entitlementService.RevokeSubscription(order.UserID)
 	case playNotifSubscriptionRecovered, playNotifSubscriptionRenewed, playNotifSubscriptionRestarted, playNotifSubscriptionPurchased:
@@ -770,10 +783,10 @@ func (s *PaymentService) HandlePlayRTDN(ctx context.Context, raw []byte) error {
 		if err != nil {
 			return fmt.Errorf("parse expiryTimeMillis: %w", err)
 		}
-		return s.entitlementService.SyncSubscriptionExpiry(s.db, order.UserID, *order.PackageID, time.UnixMilli(millis))
+		return s.entitlementService.SyncSubscriptionExpiry(s.db, order.UserID, *order.PackageID, time.UnixMilli(millis), result.AutoRenewing)
 	default:
-		// Cancellation (not yet expired), hold, grace period, price-change,
-		// pause, etc. — no immediate entitlement change required.
+		// Hold, grace period, price-change, pause, etc. — no immediate
+		// entitlement change required.
 		return nil
 	}
 }
@@ -782,34 +795,34 @@ func (s *PaymentService) HandlePlayRTDN(ctx context.Context, raw []byte) error {
 // dispatching to the product or subscription endpoint based on the
 // package's type. Returns the Play-reported order id and, for
 // subscriptions, the current expiry.
-func (s *PaymentService) verifyWithPlay(ctx context.Context, pkg *models.PremiumPackage, purchaseToken string) (valid bool, providerOrderID string, expiresAt *time.Time, err error) {
+func (s *PaymentService) verifyWithPlay(ctx context.Context, pkg *models.PremiumPackage, purchaseToken string) (valid bool, providerOrderID string, expiresAt *time.Time, autoRenewing bool, err error) {
 	if pkg.Type == "subscription" {
 		sub, err := s.playVerifier.VerifySubscriptionPurchase(ctx, *pkg.PlayProductID, purchaseToken)
 		if err != nil {
-			return false, "", nil, err
+			return false, "", nil, false, err
 		}
 		if sub.ExpiryTimeMillis == "" {
-			return false, "", nil, nil
+			return false, "", nil, false, nil
 		}
 		millis, err := strconv.ParseInt(sub.ExpiryTimeMillis, 10, 64)
 		if err != nil {
-			return false, "", nil, fmt.Errorf("parse expiryTimeMillis: %w", err)
+			return false, "", nil, false, fmt.Errorf("parse expiryTimeMillis: %w", err)
 		}
 		expiry := time.UnixMilli(millis)
 		if !expiry.After(time.Now()) {
-			return false, sub.OrderID, nil, nil
+			return false, sub.OrderID, nil, false, nil
 		}
-		return true, sub.OrderID, &expiry, nil
+		return true, sub.OrderID, &expiry, sub.AutoRenewing, nil
 	}
 
 	product, err := s.playVerifier.VerifyProductPurchase(ctx, *pkg.PlayProductID, purchaseToken)
 	if err != nil {
-		return false, "", nil, err
+		return false, "", nil, false, err
 	}
 	if product.PurchaseState != PlayPurchaseStatePurchased {
-		return false, product.OrderID, nil, nil
+		return false, product.OrderID, nil, false, nil
 	}
-	return true, product.OrderID, nil, nil
+	return true, product.OrderID, nil, false, nil
 }
 
 // verifyProductWithPlay checks a product purchase against the Android Publisher API.

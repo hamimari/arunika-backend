@@ -179,6 +179,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	adminPaymentHandler := handlers.NewAdminPaymentHandler(reg.AdminPaymentService)
 	adminProductHandler := handlers.NewAdminProductHandler(reg.ProductService)
 	adminOrderHandler := handlers.NewAdminOrderHandler(reg.OrderService, reg.PaymentService)
+	strikePriceHandler := handlers.NewStrikePriceHandler(reg.StrikePriceService)
 	bannerHandler := handlers.NewBannerHandler(reg.BannerService)
 
 	// Public banner endpoint for mobile app home screen
@@ -229,6 +230,11 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		// App feature flags
 		admin.GET("/feature-flags", featureFlagHandler.AdminList)
 		admin.PATCH("/feature-flags/:key", featureFlagHandler.AdminToggle)
+
+		// Promotional strike prices (global rules; per-item overrides live on
+		// the product / package update endpoints)
+		admin.GET("/strike-price-rules", strikePriceHandler.AdminList)
+		admin.PUT("/strike-price-rules/:scope", strikePriceHandler.AdminUpdate)
 
 		// Content — Banners
 		admin.GET("/content/banners", bannerHandler.List)

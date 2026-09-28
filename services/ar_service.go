@@ -2,6 +2,7 @@ package services
 
 import (
 	"arunika_backend/models"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -11,10 +12,18 @@ type ArService struct {
 	db                 *gorm.DB
 	productService     *ProductService
 	entitlementService *EntitlementService
+	strike             *StrikePriceService
 }
 
 func NewArService(db *gorm.DB, productService *ProductService, entitlementService *EntitlementService) *ArService {
 	return &ArService{db: db, productService: productService, entitlementService: entitlementService}
+}
+
+// WithStrikePricing enables promotional strike prices on card responses.
+// Without it, cards are served with no strike price.
+func (s *ArService) WithStrikePricing(strike *StrikePriceService) *ArService {
+	s.strike = strike
+	return s
 }
 
 func (s *ArService) GetByID(id string, userID *uuid.UUID) (*models.ArCards, error) {
@@ -22,7 +31,11 @@ func (s *ArService) GetByID(id string, userID *uuid.UUID) (*models.ArCards, erro
 	if err != nil {
 		return nil, err
 	}
-	if err := s.applyUnlocked(card, userID); err != nil {
+	rules, err := s.strike.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.applyUnlocked(card, userID, rules); err != nil {
 		return nil, err
 	}
 	return card, nil
@@ -33,8 +46,12 @@ func (s *ArService) GetAll(categoryID, subCategoryID string, userID *uuid.UUID) 
 	if err != nil {
 		return nil, err
 	}
+	rules, err := s.strike.LoadRules()
+	if err != nil {
+		return nil, err
+	}
 	for i := range cards {
-		if err := s.applyUnlocked(&cards[i], userID); err != nil {
+		if err := s.applyUnlocked(&cards[i], userID, rules); err != nil {
 			return nil, err
 		}
 	}
@@ -49,8 +66,9 @@ func (s *ArService) GetAllCategories() ([]models.ArCardCategory, error) {
 // free content (no linked product) is always unlocked; otherwise it depends
 // on the requesting user's entitlements/subscription. Card.IsUnlocked remains
 // a stored column for now (dropped once this cutover is verified), but its
-// value read from the DB is never trusted here.
-func (s *ArService) applyUnlocked(card *models.ArCards, userID *uuid.UUID) error {
+// value read from the DB is never trusted here. The display-only strike
+// price is resolved alongside the price from the request's loaded rules.
+func (s *ArService) applyUnlocked(card *models.ArCards, userID *uuid.UUID, rules StrikeRules) error {
 	product, err := s.productService.ResolveByArCardID(card.ID)
 	if err != nil {
 		return err
@@ -78,6 +96,7 @@ func (s *ArService) applyUnlocked(card *models.ArCards, userID *uuid.UUID) error
 
 	card.ProductID = &product.ID
 	card.PriceIdr = &product.PriceIdr
+	card.StrikeDisplay = rules.Resolve(models.StrikeScopeArCard, product.PriceIdr, product.StrikeOverride, time.Now())
 	card.IsUnlocked = unlocked
 	return nil
 }

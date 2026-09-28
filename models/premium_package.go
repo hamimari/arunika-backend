@@ -27,6 +27,10 @@ type PremiumPackage struct {
 	DurationDays *int      `gorm:"column:duration_days" json:"duration_days"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	// Per-package strike-price override, and the computed display-only
+	// strike price (filled per request by StrikePriceService).
+	StrikeOverride
+	StrikeDisplay
 }
 
 func (PremiumPackage) TableName() string {

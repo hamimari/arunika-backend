@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"arunika_backend/models"
 	"arunika_backend/services"
 	"encoding/base64"
 	"errors"
@@ -46,6 +47,29 @@ func NewPaymentHandler(ps *services.PaymentService, ns *services.NotificationSer
 	return &PaymentHandler{paymentService: ps, notificationService: ns, premiumPackService: pp, userService: us, productService: prs}
 }
 
+// respondSubscriptionActive answers a purchase attempt by a user whose
+// active subscription already covers everything (see
+// EntitlementService.CheckPurchaseAllowed). The app maps the code to its
+// "Langganan aktif" state.
+func respondSubscriptionActive(c *gin.Context) {
+	c.JSON(http.StatusConflict, gin.H{"error": services.ErrSubscriptionActive.Error(), "code": "SUBSCRIPTION_ACTIVE"})
+}
+
+// checkPurchaseAllowed writes the response and returns false when the
+// purchase must not proceed.
+func (h *PaymentHandler) checkPurchaseAllowed(c *gin.Context, userID uuid.UUID, pkg *models.PremiumPackage, viaPlay bool) bool {
+	err := h.paymentService.CheckPurchaseAllowed(userID, pkg, viaPlay)
+	if errors.Is(err, services.ErrSubscriptionActive) {
+		respondSubscriptionActive(c)
+		return false
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check subscription"})
+		return false
+	}
+	return true
+}
+
 // CreateTransaction handles POST /payment/create
 func (h *PaymentHandler) CreateTransaction(c *gin.Context) {
 	userIDVal, exists := c.Get("userID")
@@ -74,6 +98,9 @@ func (h *PaymentHandler) CreateTransaction(c *gin.Context) {
 	premiumPack, err := h.premiumPackService.GetByName(req.PlanName)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid package"})
+		return
+	}
+	if !h.checkPurchaseAllowed(c, userID, premiumPack, false) {
 		return
 	}
 	snapResp, err := h.paymentService.CreateSnapTransaction(user, premiumPack)
@@ -117,6 +144,9 @@ func (h *PaymentHandler) CreateProductTransaction(c *gin.Context) {
 	product, err := h.productService.GetByID(productID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product"})
+		return
+	}
+	if !h.checkPurchaseAllowed(c, userID, nil, false) {
 		return
 	}
 	itemName, err := h.productService.ResolveDisplayName(productID)
@@ -172,6 +202,9 @@ func (h *PaymentHandler) CreatePlayOrder(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid package"})
 		return
 	}
+	if !h.checkPurchaseAllowed(c, userID, pkg, true) {
+		return
+	}
 
 	order, err := h.paymentService.CreatePlayOrder(user, pkg)
 	if err != nil {
@@ -222,6 +255,9 @@ func (h *PaymentHandler) CreatePlayProductOrder(c *gin.Context) {
 	product, err := h.productService.GetByID(productID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product"})
+		return
+	}
+	if !h.checkPurchaseAllowed(c, userID, nil, true) {
 		return
 	}
 

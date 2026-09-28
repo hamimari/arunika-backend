@@ -37,6 +37,8 @@ type ArCards struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 	CreatedAt      time.Time       `json:"created_at"`
 	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
+	// Display-only promotional strike price, computed alongside PriceIdr.
+	StrikeDisplay
 }
 
 func FindCardById(db *gorm.DB, id string) (*ArCards, error) {

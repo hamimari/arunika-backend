@@ -47,6 +47,10 @@ func (h *PremiumPackHandler) AdminCreatePack(c *gin.Context) {
 		return
 	}
 	pack, err := h.service.CreatePack(input)
+	if services.IsValidationError(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create package"})
 		return
@@ -63,6 +67,10 @@ func (h *PremiumPackHandler) AdminUpdatePack(c *gin.Context) {
 		return
 	}
 	pack, err := h.service.UpdatePack(id, input)
+	if services.IsValidationError(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "package not found"})

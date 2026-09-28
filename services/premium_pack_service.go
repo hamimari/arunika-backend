@@ -3,6 +3,7 @@ package services
 import (
 	"arunika_backend/models"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -11,10 +12,37 @@ import (
 type PremiumPackService struct {
 	db           *gorm.DB
 	orderService *OrderService
+	strike       *StrikePriceService
 }
 
 func NewPremiumPackService(db *gorm.DB, orderService *OrderService) *PremiumPackService {
 	return &PremiumPackService{db: db, orderService: orderService}
+}
+
+// WithStrikePricing enables promotional strike prices on package responses.
+// Without it, packages are served with no strike price.
+func (s *PremiumPackService) WithStrikePricing(strike *StrikePriceService) *PremiumPackService {
+	s.strike = strike
+	return s
+}
+
+// applyStrike fills each package's display-only strike price from the
+// PACKAGE rule and its own override. When public is true the stored
+// override is cleared from the response — the app only needs the result,
+// not how marketing configured it.
+func (s *PremiumPackService) applyStrike(packs []models.PremiumPackage, public bool) error {
+	rules, err := s.strike.LoadRules()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for i := range packs {
+		packs[i].StrikeDisplay = rules.Resolve(models.StrikeScopePackage, int64(packs[i].PriceIdr), packs[i].StrikeOverride, now)
+		if public {
+			packs[i].StrikeOverride = models.StrikeOverride{}
+		}
+	}
+	return nil
 }
 
 // GetActivePacks returns active packages, optionally filtered by type. When
@@ -25,6 +53,9 @@ func NewPremiumPackService(db *gorm.DB, orderService *OrderService) *PremiumPack
 func (s *PremiumPackService) GetActivePacks(packType string, userID *uuid.UUID) ([]models.PremiumPackage, error) {
 	packs, err := models.FindActivePremiumPackages(s.db, packType)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.applyStrike(packs, true); err != nil {
 		return nil, err
 	}
 	if userID == nil {
@@ -48,7 +79,14 @@ func (s *PremiumPackService) GetActivePacks(packType string, userID *uuid.UUID) 
 
 // GetAllPacks returns all packages including inactive (admin use).
 func (s *PremiumPackService) GetAllPacks() ([]models.PremiumPackage, error) {
-	return models.FindAllPremiumPackages(s.db)
+	packs, err := models.FindAllPremiumPackages(s.db)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.applyStrike(packs, false); err != nil {
+		return nil, err
+	}
+	return packs, nil
 }
 
 type CreatePremiumPackInput struct {
@@ -63,6 +101,7 @@ type CreatePremiumPackInput struct {
 	IsBestValue   bool    `json:"is_best_value"`
 	SortOrder     int     `json:"sort_order"`
 	DurationDays  *int    `json:"duration_days"`
+	StrikeInput
 }
 
 // validateDurationDays enforces that duration_days is set (and positive) for
@@ -71,7 +110,7 @@ type CreatePremiumPackInput struct {
 func validateDurationDays(packType string, durationDays *int) error {
 	if packType == "subscription" {
 		if durationDays == nil || *durationDays <= 0 {
-			return errors.New("duration_days is required and must be positive for subscription packages")
+			return validationErrorf("duration_days is required and must be positive for subscription packages")
 		}
 	}
 	return nil
@@ -80,6 +119,10 @@ func validateDurationDays(packType string, durationDays *int) error {
 // CreatePack inserts a new premium package.
 func (s *PremiumPackService) CreatePack(input CreatePremiumPackInput) (*models.PremiumPackage, error) {
 	if err := validateDurationDays(input.Type, input.DurationDays); err != nil {
+		return nil, err
+	}
+	strike, err := input.ToOverride(time.Now())
+	if err != nil {
 		return nil, err
 	}
 	pack := models.PremiumPackage{
@@ -95,6 +138,8 @@ func (s *PremiumPackService) CreatePack(input CreatePremiumPackInput) (*models.P
 		SortOrder:     input.SortOrder,
 		DurationDays:  input.DurationDays,
 		IsActive:      true,
+
+		StrikeOverride: strike,
 	}
 	result := s.db.Create(&pack)
 	return &pack, result.Error
@@ -112,11 +157,16 @@ type UpdatePremiumPackInput struct {
 	IsBestValue   bool    `json:"is_best_value"`
 	SortOrder     int     `json:"sort_order"`
 	DurationDays  *int    `json:"duration_days"`
+	StrikeInput
 }
 
 // UpdatePack updates an existing premium package. Returns nil if not found.
 func (s *PremiumPackService) UpdatePack(id string, input UpdatePremiumPackInput) (*models.PremiumPackage, error) {
 	if err := validateDurationDays(input.Type, input.DurationDays); err != nil {
+		return nil, err
+	}
+	strike, err := input.ToOverride(time.Now())
+	if err != nil {
 		return nil, err
 	}
 	pack, err := models.FindPremiumPackageByID(s.db, id)
@@ -134,6 +184,7 @@ func (s *PremiumPackService) UpdatePack(id string, input UpdatePremiumPackInput)
 	pack.IsBestValue = input.IsBestValue
 	pack.SortOrder = input.SortOrder
 	pack.DurationDays = input.DurationDays
+	pack.StrikeOverride = strike
 	result := s.db.Save(pack)
 	return pack, result.Error
 }

@@ -12,6 +12,7 @@ type DongengService struct {
 	db                 *gorm.DB
 	productService     *ProductService
 	entitlementService *EntitlementService
+	strike             *StrikePriceService
 }
 
 // DongengPageResponse is the DTO for a single page within a dongeng.
@@ -46,6 +47,8 @@ type DongengResponse struct {
 	CreatedAt            time.Time               `json:"created_at"`
 	UpdatedAt            time.Time               `json:"updated_at"`
 	IsDeleted            bool                    `json:"is_deleted"`
+	// Display-only promotional strike price, set alongside PriceIdr.
+	models.StrikeDisplay
 }
 
 // DongengListResult wraps a paginated list response.
@@ -58,6 +61,13 @@ type DongengListResult struct {
 
 func NewDongengService(db *gorm.DB, productService *ProductService, entitlementService *EntitlementService) *DongengService {
 	return &DongengService{db: db, productService: productService, entitlementService: entitlementService}
+}
+
+// WithStrikePricing enables promotional strike prices on dongeng responses.
+// Without it, dongengs are served with no strike price.
+func (s *DongengService) WithStrikePricing(strike *StrikePriceService) *DongengService {
+	s.strike = strike
+	return s
 }
 
 // GetCategories returns all top-level dongeng categories with their
@@ -109,6 +119,11 @@ func (s *DongengService) GetFairyTales(search string, page, perPage int, userID 
 	if err != nil {
 		return nil, err
 	}
+	rules, err := s.strike.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
 
 	items := make([]DongengResponse, len(dongengs))
 	for i, d := range dongengs {
@@ -138,6 +153,7 @@ func (s *DongengService) GetFairyTales(search string, page, perPage int, userID 
 		if product != nil {
 			items[i].ProductID = &product.ID
 			items[i].PriceIdr = &product.PriceIdr
+			items[i].StrikeDisplay = rules.Resolve(models.StrikeScopeDongeng, product.PriceIdr, product.StrikeOverride, now)
 		}
 	}
 
@@ -225,8 +241,13 @@ func (s *DongengService) GetFairyTaleByID(id string, userID *uuid.UUID) (*Dongen
 		IsDeleted:            dongeng.IsDeleted,
 	}
 	if product != nil {
+		rules, err := s.strike.LoadRules()
+		if err != nil {
+			return nil, err
+		}
 		resp.ProductID = &product.ID
 		resp.PriceIdr = &product.PriceIdr
+		resp.StrikeDisplay = rules.Resolve(models.StrikeScopeDongeng, product.PriceIdr, product.StrikeOverride, time.Now())
 	}
 	return resp, nil
 }

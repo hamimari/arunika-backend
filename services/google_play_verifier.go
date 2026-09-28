@@ -70,6 +70,9 @@ type PlaySubscriptionPurchase struct {
 	// CancelReason is present once the subscription has been canceled; its
 	// absence does not mean active — ExpiryTimeMillis is the source of truth.
 	CancelReason *int `json:"cancelReason"`
+	// AutoRenewing is false once the user has cancelled; the subscription
+	// stays valid until ExpiryTimeMillis.
+	AutoRenewing bool `json:"autoRenewing"`
 }
 
 // ExternalTransactionPrice mirrors the Android Publisher API's Price type —
