@@ -40,3 +40,6 @@ flyway.conf
 *.log
 db/seeds/test/.env.e2e.generated
 tests/e2e/artifacts/
+
+# Pre-release gate output
+prerelease-reports/

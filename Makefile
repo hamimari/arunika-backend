@@ -1,5 +1,5 @@
 # Local and CI use the same commands. See README "Running Tests".
-.PHONY: lint fmt test-fast test-all test-e2e e2e-hold coverage-baseline build
+.PHONY: lint fmt test-fast test-all test-e2e e2e-hold coverage-baseline build prerelease
 
 fmt:
 	gofmt -w .
@@ -39,3 +39,8 @@ e2e-hold:
 coverage-baseline:
 	go test ./... -coverpkg=./... -coverprofile=cover.out
 	python3 scripts/coverage-ratchet.py --write
+
+## prerelease: the pre-release security/performance gate. Start the API first
+## for the load test, or run scripts/prerelease_check.sh --skip-load.
+prerelease:
+	scripts/prerelease_check.sh

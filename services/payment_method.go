@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var paymentTypeLabels = map[string]string{
+var paymentTypeLabels = map[string]string{ // #nosec G101 -- display labels, not credentials
 	"credit_card":    "Kartu Kredit/Debit",
 	"gopay":          "GoPay",
 	"qris":           "QRIS",

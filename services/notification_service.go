@@ -182,7 +182,8 @@ func loadServiceAccountJSONFromEnv(envVar string) (string, error) {
 	if value == "" || strings.HasPrefix(value, "{") {
 		return value, nil
 	}
-	content, err := os.ReadFile(value)
+	// The path comes from operator-controlled server config, never a request.
+	content, err := os.ReadFile(value) // #nosec G304 G703 -- trusted env config
 	if err != nil {
 		return "", fmt.Errorf("%s is neither JSON nor a readable file path (%q): %w", envVar, value, err)
 	}

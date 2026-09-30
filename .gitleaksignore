@@ -1,0 +1,8 @@
+# Reviewed gitleaks findings. Each line pins one commit + file + line, so any
+# new secret, or the same file in a later commit, is still reported.
+#
+# .env committed in the initial commit (removed in 9622c4d). The SMTP and Redis
+# passwords were local development values only, confirmed by the owner on
+# 2026-09-30; no production credential was ever in this file.
+e07e45b3de0b3568bd13b90e599a908d333373d4:.env:generic-api-key:11
+e07e45b3de0b3568bd13b90e599a908d333373d4:.env:generic-api-key:16
