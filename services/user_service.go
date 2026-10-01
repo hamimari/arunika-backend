@@ -3,9 +3,11 @@ package services
 import (
 	"arunika_backend/models"
 	"fmt"
+	"math"
+	"time"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"time"
 )
 
 type UserService struct {
@@ -16,12 +18,98 @@ func NewUserService(db *gorm.DB) *UserService {
 	return &UserService{db: db}
 }
 
-func (s *UserService) GetUserByID(id string) (*models.Parent, error) {
+// SubscriptionDetail is the client-facing view of a user's active
+// subscription — plan name (resolved from premium_packages, falling back to
+// a generic label for admin manual-grants that have no package_id), status,
+// and days remaining so the profile screen can show "N hari lagi" and a
+// pay/extend CTA.
+type SubscriptionDetail struct {
+	PlanName  string     `json:"plan_name"`
+	Status    string     `json:"status"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	DaysLeft  *int       `json:"days_left,omitempty"`
+	// Renewal state, computed server-side so the app does no date math:
+	// Provider is midtrans|google_play; CanRenew is true only inside the
+	// last RenewalWindowDays of a subscription that won't auto-renew.
+	// PlayProductID is set for Play subscriptions so the app can open that
+	// subscription's page in Google Play.
+	Provider      string     `json:"provider"`
+	AutoRenew     bool       `json:"auto_renew"`
+	RenewableFrom *time.Time `json:"renewable_from,omitempty"`
+	CanRenew      bool       `json:"can_renew"`
+	PlayProductID *string    `json:"play_product_id,omitempty"`
+}
+
+func (s *UserService) GetUserByID(id string) (*models.Parent, string, *SubscriptionDetail, error) {
 	var user models.Parent
 	if err := s.db.Preload("Children").First(&user, "id = ?", id).Error; err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
-	return &user, nil
+
+	// Fetch subscription status; default to "free" if not found or expired.
+	// A lapsed subscription must not keep reporting "premium" — this is
+	// consulted by the client to decide whether to show the premium upsell.
+	var sub models.UserSubscription
+	status := "free"
+	var detail *SubscriptionDetail
+	if err := s.db.Where("user_id = ?", id).First(&sub).Error; err == nil {
+		if sub.Status == "premium" && (sub.ExpiresAt == nil || sub.ExpiresAt.After(time.Now())) {
+			status = "premium"
+			detail = s.buildSubscriptionDetail(&sub)
+		}
+	}
+
+	// Ensure Children is never nil so JSON serialises as [] not null
+	if user.Children == nil {
+		user.Children = []models.Children{}
+	}
+
+	return &user, status, detail, nil
+}
+
+func (s *UserService) buildSubscriptionDetail(sub *models.UserSubscription) *SubscriptionDetail {
+	planName := "Langganan Premium"
+	var playProductID *string
+	if sub.PackageID != nil {
+		var pkg models.PremiumPackage
+		if err := s.db.Select("name", "play_product_id").Where("id = ?", sub.PackageID.String()).First(&pkg).Error; err == nil {
+			if pkg.Name != "" {
+				planName = pkg.Name
+			}
+			playProductID = pkg.PlayProductID
+		}
+	}
+
+	provider := sub.Provider
+	if provider == "" {
+		provider = models.OrderProviderMidtrans
+	}
+	renewal := RenewalFor(sub, time.Now())
+	// A Midtrans subscription can only be renewed in-app through the
+	// Midtrans checkout, which is closed while alternative billing is off.
+	if renewal.CanRenew && provider != models.OrderProviderGooglePlay && !s.alternativeBillingEnabled() {
+		renewal.CanRenew = false
+	}
+	detail := &SubscriptionDetail{
+		PlanName:      planName,
+		Status:        sub.Status,
+		ExpiresAt:     sub.ExpiresAt,
+		Provider:      provider,
+		AutoRenew:     sub.AutoRenew,
+		RenewableFrom: renewal.RenewableFrom,
+		CanRenew:      renewal.CanRenew,
+	}
+	if provider == models.OrderProviderGooglePlay {
+		detail.PlayProductID = playProductID
+	}
+	if sub.ExpiresAt != nil {
+		days := int(math.Ceil(time.Until(*sub.ExpiresAt).Hours() / 24))
+		if days < 0 {
+			days = 0
+		}
+		detail.DaysLeft = &days
+	}
+	return detail
 }
 
 func (s *UserService) UpdateUser(req *models.Parent) (*models.Parent, error) {
@@ -104,4 +192,14 @@ func (s *UserService) updateUserTx(req *models.Parent) (*models.Parent, error) {
 	}
 
 	return &parent, nil
+}
+
+// alternativeBillingEnabled reports whether the Midtrans checkout is open
+// (the alternative_billing flag). Unknown or unreadable means off.
+func (s *UserService) alternativeBillingEnabled() bool {
+	var flag models.FeatureFlag
+	if err := s.db.Where("key = ?", models.FeatureFlagAlternativeBilling).First(&flag).Error; err != nil {
+		return false
+	}
+	return flag.IsEnabled
 }

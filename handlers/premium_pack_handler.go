@@ -1,0 +1,155 @@
+package handlers
+
+import (
+	"arunika_backend/services"
+	"errors"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+type PremiumPackHandler struct {
+	service *services.PremiumPackService
+}
+
+func NewPremiumPackHandler(s *services.PremiumPackService) *PremiumPackHandler {
+	return &PremiumPackHandler{service: s}
+}
+
+// GetActivePacks handles GET /premium/packs (public — no auth required)
+// Optional ?type=content|subscription query param.
+func (h *PremiumPackHandler) GetActivePacks(c *gin.Context) {
+	packType := c.Query("type")
+	packs, err := h.service.GetActivePacks(packType, optionalUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve packages"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": packs})
+}
+
+// AdminListPacks handles GET /admin/premium/packs (admin JWT required)
+func (h *PremiumPackHandler) AdminListPacks(c *gin.Context) {
+	packs, err := h.service.GetAllPacks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve packages"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": packs})
+}
+
+// AdminCreatePack handles POST /admin/premium/packs (admin JWT required)
+func (h *PremiumPackHandler) AdminCreatePack(c *gin.Context) {
+	var input services.CreatePremiumPackInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	pack, err := h.service.CreatePack(input)
+	if services.IsValidationError(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create package"})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": pack})
+}
+
+// AdminUpdatePack handles PUT /admin/premium/packs/:id (admin JWT required)
+func (h *PremiumPackHandler) AdminUpdatePack(c *gin.Context) {
+	id := c.Param("id")
+	var input services.UpdatePremiumPackInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	pack, err := h.service.UpdatePack(id, input)
+	if services.IsValidationError(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "package not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update package"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pack})
+}
+
+// AdminDeletePack handles DELETE /admin/premium/packs/:id (admin JWT required)
+func (h *PremiumPackHandler) AdminDeletePack(c *gin.Context) {
+	id := c.Param("id")
+	err := h.service.DeletePack(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "package not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete package"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// AdminListPackItems handles GET /admin/premium/packs/:id/items (admin JWT required)
+func (h *PremiumPackHandler) AdminListPackItems(c *gin.Context) {
+	items, err := h.service.ListItems(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+type AddPackItemRequest struct {
+	ProductID string `json:"product_id" binding:"required"`
+}
+
+// AdminAddPackItem handles POST /admin/premium/packs/:id/items (admin JWT required)
+func (h *PremiumPackHandler) AdminAddPackItem(c *gin.Context) {
+	var req AddPackItemRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.service.AddItem(c.Param("id"), req.ProductID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusCreated)
+}
+
+// AdminRemovePackItem handles DELETE /admin/premium/packs/:id/items/:product_id (admin JWT required)
+func (h *PremiumPackHandler) AdminRemovePackItem(c *gin.Context) {
+	if err := h.service.RemoveItem(c.Param("id"), c.Param("product_id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// AdminToggleVisibility handles PATCH /admin/premium/packs/:id/visibility (admin JWT required)
+func (h *PremiumPackHandler) AdminToggleVisibility(c *gin.Context) {
+	id := c.Param("id")
+	var input services.ToggleVisibilityInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	pack, err := h.service.ToggleVisibility(id, input.IsActive)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "package not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update visibility"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pack})
+}

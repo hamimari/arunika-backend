@@ -1,0 +1,43 @@
+# Version control
+.git/
+.gitignore
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files — never bake secrets into the image
+.env
+.env.local
+.env.*.local
+
+# Previously compiled binary
+arunika_backend
+*.exe
+*.out
+
+# Test artefacts
+*.test
+*.prof
+coverage.out
+coverage.html
+
+# Docker files themselves (no need to copy into the image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Local data volumes
+pgdata/
+
+# Flyway local config (may contain credentials)
+flyway.conf
+
+# README
+README.md

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Keep the token out of any outbound request: no external stylesheets,
+       fonts, scripts or images, so nothing can carry it in a Referer header.
+       The token is also never rendered into the page. -->
+  <meta name="referrer" content="no-referrer" />
+  <title>Verifikasi Email Arunika</title>
+  <style>
+    body {
+      margin: 0; padding: 24px; background: #f6f7f9;
+      font-family: Arial, Helvetica, sans-serif; color: #2b2b2b;
+    }
+    .card {
+      max-width: 480px; margin: 48px auto; background: #fff;
+      border-radius: 12px; padding: 32px; text-align: center;
+    }
+    .icon { font-size: 48px; line-height: 1; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { line-height: 1.6; margin: 0 0 12px; }
+    .muted { color: #6b6b6b; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    {{if eq .Status "verified"}}
+      <div class="icon">✅</div>
+      <h1>Email berhasil diverifikasi</h1>
+      <p>Terima kasih, {{.Name}}. Alamat email kamu sudah terverifikasi.</p>
+      <p class="muted">Kamu bisa menutup halaman ini dan kembali ke aplikasi Arunika.</p>
+
+    {{else if eq .Status "already"}}
+      <div class="icon">✅</div>
+      <h1>Email sudah terverifikasi</h1>
+      <p>Alamat email ini sudah diverifikasi sebelumnya. Tidak ada yang perlu dilakukan.</p>
+      <p class="muted">Kamu bisa menutup halaman ini dan kembali ke aplikasi Arunika.</p>
+
+    {{else}}
+      <div class="icon">⚠️</div>
+      <h1>Tautan tidak berlaku</h1>
+      <p>Tautan verifikasi ini sudah kedaluwarsa atau pernah digunakan.</p>
+      <p class="muted">
+        Buka aplikasi Arunika, lalu tekan <strong>Kirim ulang</strong> pada
+        notifikasi verifikasi email untuk mendapatkan tautan baru.
+      </p>
+    {{end}}
+  </div>
+</body>
+</html>

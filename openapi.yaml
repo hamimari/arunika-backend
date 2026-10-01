@@ -1,0 +1,3027 @@
+openapi: 3.1.0
+info:
+  title: Arunika API
+  version: "1.0.0"
+  description: |
+    The contract between the Arunika backend and its two clients: the
+    Flutter app and the backoffice admin panel.
+
+    This document is the source of truth for which paths exist and which
+    require authentication. tests/contract asserts it stays in step with
+    routes/router.go in BOTH directions — a route added without a spec
+    entry fails the suite, and so does a spec entry with no route. The
+    clients each vendor a copy and assert every path they call appears
+    here, which is what makes silent drift unmergeable.
+
+    Security values were derived by probing the real router, not by hand:
+    a route is bearerAuth if an anonymous request is rejected, and
+    adminAuth if a valid non-admin token is additionally forbidden.
+servers:
+  - url: https://api.arunika.example
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by /auth/login or /auth/signup.
+    adminAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Admin access token issued by /admin/auth/login (role=admin).
+  responses:
+    Unauthorized:
+      description: Missing, malformed, expired or revoked credentials.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authenticated but not permitted.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Request failed validation.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    AuthTokens:
+      type: object
+      required: [access_token, refresh_token, user_id]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        user_id: { type: string, format: uuid }
+    SignUpResponse:
+      type: object
+      required: [name, phone_number, email, address, city, token, refresh_token]
+      properties:
+        name: { type: string }
+        phone_number: { type: string }
+        email: { type: string }
+        address: { type: string }
+        city: { type: string }
+        child: { type: array, items: { type: object } }
+        token: { type: string }
+        refresh_token: { type: string }
+    UserProfile:
+      type: object
+      required: [id, name, email_address, email_verified]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        phone_number: { type: string }
+        email_address: { type: string }
+        address: { type: string }
+        city: { type: string }
+        email_verified:
+          type: boolean
+          description: Gates password-reset delivery only; never content or purchases.
+        is_subscribed: { type: boolean }
+        consent_required:
+          type: boolean
+          description: True when the user has not accepted the current version of every legal document (UU PDP); the app blocks on a consent screen until POST /user/consent.
+        children: { type: array, items: { type: object } }
+      description: The password hash is deliberately never serialized.
+    ConsentInput:
+      type: object
+      required: [terms_version, privacy_version, parental_version]
+      properties:
+        terms_version: { type: string, example: "2026-10-01" }
+        privacy_version: { type: string, example: "2026-10-01" }
+        parental_version:
+          type: string
+          example: "2026-10-01"
+          description: Version of the parent/guardian declaration consenting to processing of the child's data.
+      description: The document versions the client showed the user when they accepted.
+    Order:
+      type: object
+      required: [id, status, amount_idr]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING, PAID, FAILED, EXPIRED, REFUNDED] }
+        amount_idr: { type: integer, format: int64 }
+        provider: { type: string, enum: [midtrans, google_play] }
+        product_id: { type: string, format: uuid }
+        package_id: { type: string, format: uuid }
+    PaymentMetric:
+      type: object
+      required: [status, count, total]
+      properties:
+        status:
+          type: string
+          description: An order status, not a subscription status.
+        count: { type: integer, format: int64 }
+        total:
+          type: integer
+          format: int64
+          description: Gross value of the group in whole rupiah.
+paths:
+  /admin/analytics/dau:
+    get:
+      tags: [admin]
+      summary: Get analytics dau
+      operationId: getadmin_analytics_dau
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/analytics/new-users:
+    get:
+      tags: [admin]
+      summary: Get analytics new-users
+      operationId: getadmin_analytics_new_users
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/analytics/payments:
+    get:
+      tags: [admin]
+      summary: Get analytics payments
+      operationId: getadmin_analytics_payments
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/PaymentMetric" }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/analytics/popular-features:
+    get:
+      tags: [admin]
+      summary: Get analytics popular-features
+      operationId: getadmin_analytics_popular_features
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/analytics/subscription-stats:
+    get:
+      tags: [admin]
+      summary: Get analytics subscription-stats
+      operationId: getadmin_analytics_subscription_stats
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/auth/login:
+    post:
+      tags: [admin]
+      summary: Create auth login
+      operationId: postadmin_auth_login
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/auth/logout:
+    post:
+      tags: [admin]
+      summary: Create auth logout
+      operationId: postadmin_auth_logout
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/auth/refresh:
+    post:
+      tags: [admin]
+      summary: Create auth refresh
+      operationId: postadmin_auth_refresh
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/campaigns:
+    get:
+      tags: [admin]
+      summary: Get admin campaigns
+      operationId: getadmin_campaigns
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create admin campaigns
+      operationId: postadmin_campaigns
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-card-categories:
+    get:
+      tags: [admin]
+      summary: Get content ar-card-categories
+      operationId: getadmin_content_ar_card_categories
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content ar-card-categories
+      operationId: postadmin_content_ar_card_categories
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-card-categories/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content ar-card-categories
+      operationId: deleteadmin_content_ar_card_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content ar-card-categories
+      operationId: getadmin_content_ar_card_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content ar-card-categories
+      operationId: putadmin_content_ar_card_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-card-categories/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update ar-card-categories visibility
+      operationId: patchadmin_content_ar_card_categories_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-cards:
+    get:
+      tags: [admin]
+      summary: Get content ar-cards
+      operationId: getadmin_content_ar_cards
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content ar-cards
+      operationId: postadmin_content_ar_cards
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-cards/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content ar-cards
+      operationId: deleteadmin_content_ar_cards_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content ar-cards
+      operationId: getadmin_content_ar_cards_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content ar-cards
+      operationId: putadmin_content_ar_cards_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-cards/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update ar-cards visibility
+      operationId: patchadmin_content_ar_cards_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/ar-cards/{id}/free:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Make an AR card free or premium
+      description: >-
+        Flips only the free flag; the product, its orders and earlier buyers'
+        entitlements are untouched, so it is reversible. is_free is required:
+        an absent value is a 400, never "false". Saving the item with PUT
+        never changes this flag. 404 when the item does not exist.
+      operationId: patchadmin_content_ar_cards_id_free
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_free]
+              properties:
+                is_free: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_free: { type: boolean }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/badges:
+    get:
+      tags: [admin]
+      summary: Get content badges
+      operationId: getadmin_content_badges
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content badges
+      operationId: postadmin_content_badges
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/badges/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content badges
+      operationId: deleteadmin_content_badges_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content badges
+      operationId: getadmin_content_badges_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content badges
+      operationId: putadmin_content_badges_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/badges/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update badges visibility
+      operationId: patchadmin_content_badges_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/banners:
+    get:
+      tags: [admin]
+      summary: Get content banners
+      operationId: getadmin_content_banners
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content banners
+      operationId: postadmin_content_banners
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/banners/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content banners
+      operationId: deleteadmin_content_banners_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content banners
+      operationId: getadmin_content_banners_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content banners
+      operationId: putadmin_content_banners_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/banners/{id}/active:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update banners active
+      operationId: patchadmin_content_banners_id_active
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/banners/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update banners visibility
+      operationId: patchadmin_content_banners_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/categories:
+    get:
+      tags: [admin]
+      summary: Get content categories
+      operationId: getadmin_content_categories
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content categories
+      operationId: postadmin_content_categories
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/categories/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content categories
+      operationId: deleteadmin_content_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content categories
+      operationId: getadmin_content_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content categories
+      operationId: putadmin_content_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/categories/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update categories visibility
+      operationId: patchadmin_content_categories_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/counting-questions:
+    get:
+      tags: [admin]
+      summary: Get content counting-questions
+      operationId: getadmin_content_counting_questions
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content counting-questions
+      operationId: postadmin_content_counting_questions
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/counting-questions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content counting-questions
+      operationId: deleteadmin_content_counting_questions_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content counting-questions
+      operationId: getadmin_content_counting_questions_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content counting-questions
+      operationId: putadmin_content_counting_questions_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/counting-questions/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update counting-questions visibility
+      operationId: patchadmin_content_counting_questions_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/dongen-pages:
+    get:
+      tags: [admin]
+      summary: Get content dongen-pages
+      operationId: getadmin_content_dongen_pages
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content dongen-pages
+      operationId: postadmin_content_dongen_pages
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/dongen-pages/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content dongen-pages
+      operationId: deleteadmin_content_dongen_pages_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content dongen-pages
+      operationId: getadmin_content_dongen_pages_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content dongen-pages
+      operationId: putadmin_content_dongen_pages_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/dongeng-categories:
+    get:
+      tags: [admin]
+      summary: Get content dongeng-categories
+      operationId: getadmin_content_dongeng_categories
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content dongeng-categories
+      operationId: postadmin_content_dongeng_categories
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/dongeng-categories/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content dongeng-categories
+      operationId: deleteadmin_content_dongeng_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content dongeng-categories
+      operationId: getadmin_content_dongeng_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content dongeng-categories
+      operationId: putadmin_content_dongeng_categories_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/dongeng-categories/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update dongeng-categories visibility
+      operationId: patchadmin_content_dongeng_categories_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/fairy-tales:
+    get:
+      tags: [admin]
+      summary: Get content fairy-tales
+      operationId: getadmin_content_fairy_tales
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content fairy-tales
+      operationId: postadmin_content_fairy_tales
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/fairy-tales/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content fairy-tales
+      operationId: deleteadmin_content_fairy_tales_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content fairy-tales
+      operationId: getadmin_content_fairy_tales_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content fairy-tales
+      operationId: putadmin_content_fairy_tales_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/fairy-tales/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update fairy-tales visibility
+      operationId: patchadmin_content_fairy_tales_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/fairy-tales/{id}/free:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Make a dongeng free or premium
+      description: >-
+        Flips only the free flag; the product, its orders and earlier buyers'
+        entitlements are untouched, so it is reversible. is_free is required:
+        an absent value is a 400, never "false". Saving the item with PUT
+        never changes this flag. 404 when the item does not exist.
+      operationId: patchadmin_content_fairy_tales_id_free
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_free]
+              properties:
+                is_free: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_free: { type: boolean }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/tracing-items:
+    get:
+      tags: [admin]
+      summary: Get content tracing-items
+      operationId: getadmin_content_tracing_items
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create content tracing-items
+      operationId: postadmin_content_tracing_items
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/tracing-items/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete content tracing-items
+      operationId: deleteadmin_content_tracing_items_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get content tracing-items
+      operationId: getadmin_content_tracing_items_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update content tracing-items
+      operationId: putadmin_content_tracing_items_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/content/tracing-items/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update tracing-items visibility
+      operationId: patchadmin_content_tracing_items_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/feature-flags:
+    get:
+      tags: [admin]
+      summary: Get admin feature-flags
+      operationId: getadmin_feature_flags
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/feature-flags/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update admin feature-flags
+      operationId: patchadmin_feature_flags_key
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/refund:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [admin]
+      summary: Refund a Google Play order
+      description: >-
+        Body {reason, refund_type}. reason is required (at least 10 characters);
+        refund_type is FULL (default) or PRORATED (subscriptions only). One-time
+        purchases use orders.refund with revoke; subscriptions use
+        subscriptionsv2.revoke. On success the order becomes REFUNDED and access is
+        removed. 400 invalid input, 409 not refundable or already refunded, 502
+        when Google refuses (the refund is recorded as FAILED).
+      operationId: postadmin_orders_id_refund
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/refunds:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [admin]
+      summary: List an order's refunds
+      description: >-
+        Refund records (admin-issued and Google-initiated), newest first, with
+        the issuing admin's email and Google's refunded amounts and state.
+      operationId: getadmin_orders_id_refunds
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/order-refunds/{id}/sync:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [admin]
+      summary: Sync refund details from Google
+      description: >-
+        Re-reads the refund's details (amounts, state, reason) with orders.get,
+        and completes a refund Google accepted but that was left REQUESTED.
+      operationId: postadmin_order_refunds_id_sync
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/strike-price-rules:
+    get:
+      tags: [admin]
+      summary: Get admin strike-price-rules
+      description: >-
+        The three global promotional strike-price rules (AR_CARD, DONGENG,
+        PACKAGE) with mode, value, starts_at, ends_at and a computed status
+        (OFF, SCHEDULED, ACTIVE, ENDED).
+      operationId: getadmin_strike_price_rules
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/strike-price-rules/{scope}:
+    parameters:
+      - name: scope
+        in: path
+        required: true
+        schema: { type: string, enum: [AR_CARD, DONGENG, PACKAGE] }
+    put:
+      tags: [admin]
+      summary: Update admin strike-price-rules
+      description: >-
+        Body {mode, value, starts_at, ends_at}. mode is NONE, PERCENT (value
+        1-90) or FIXED (value >= 1); PERCENT/FIXED need an ends_at in the
+        future, after starts_at, at most 90 days out. 404 for an unknown scope,
+        400 for an invalid rule.
+      operationId: putadmin_strike_price_rules_scope
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders:
+    get:
+      tags: [admin]
+      summary: Get admin orders
+      operationId: getadmin_orders
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/recover-play:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [admin]
+      summary: Create orders recover-play
+      operationId: postadmin_orders_id_recover_play
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/sync:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [admin]
+      summary: Create orders sync
+      operationId: postadmin_orders_id_sync
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/reconcile-play:
+    post:
+      tags: [admin]
+      summary: Create orders reconcile-play
+      operationId: postadmin_orders_reconcile_play
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/payments:
+    get:
+      tags: [admin]
+      summary: Get admin payments
+      operationId: getadmin_payments
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/payments/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [admin]
+      summary: Get admin payments
+      operationId: getadmin_payments_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/premium/packs:
+    get:
+      tags: [admin]
+      summary: Get premium packs
+      operationId: getadmin_premium_packs
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create premium packs
+      operationId: postadmin_premium_packs
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/premium/packs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete premium packs
+      operationId: deleteadmin_premium_packs_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update premium packs
+      operationId: putadmin_premium_packs_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/premium/packs/{id}/items:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [admin]
+      summary: Get packs items
+      operationId: getadmin_premium_packs_id_items
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create packs items
+      operationId: postadmin_premium_packs_id_items
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/premium/packs/{id}/items/{product_id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+      - name: product_id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete packs items
+      operationId: deleteadmin_premium_packs_id_items_product_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/premium/packs/{id}/visibility:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update packs visibility
+      operationId: patchadmin_premium_packs_id_visibility
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/products:
+    get:
+      tags: [admin]
+      summary: Get admin products
+      operationId: getadmin_products
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [admin]
+      summary: Create admin products
+      operationId: postadmin_products
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [admin]
+      summary: Delete admin products
+      operationId: deleteadmin_products_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    get:
+      tags: [admin]
+      summary: Get admin products
+      operationId: getadmin_products_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [admin]
+      summary: Update admin products
+      description: >-
+        Body {price_idr, strike_*, play_product_id}. play_product_id is the
+        Google Play SKU selling the product: absent leaves the mapping
+        unchanged, null or blank clears it. 400 when the SKU is already used
+        by another product or a package.
+      operationId: putadmin_products_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/products/{id}/active:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update products active
+      operationId: patchadmin_products_id_active
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/users:
+    get:
+      tags: [admin]
+      summary: Get admin users
+      operationId: getadmin_users
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [admin]
+      summary: Get admin users
+      operationId: getadmin_users_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/users/{id}/permission:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [admin]
+      summary: Update users permission
+      operationId: patchadmin_users_id_permission
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /app/feature-flags:
+    get:
+      tags: [misc]
+      summary: Get app feature-flags
+      operationId: getapp_feature_flags
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /ar/cards:
+    get:
+      tags: [ar]
+      summary: Get ar cards
+      operationId: getar_cards
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /ar/cards/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ar]
+      summary: Get ar cards
+      operationId: getar_cards_id
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /ar/categories:
+    get:
+      tags: [ar]
+      summary: Get ar categories
+      operationId: getar_categories
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /ar/printable-pdf:
+    get:
+      tags: [ar]
+      summary: Get ar printable-pdf
+      operationId: getar_printable_pdf
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/check-availability:
+    get:
+      tags: [auth]
+      summary: Get auth check-availability
+      operationId: getauth_check_availability
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Create auth login
+      operationId: postauth_login
+      security: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf: [{ $ref: "#/components/schemas/AuthTokens" }]
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Create auth logout
+      operationId: postauth_logout
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/refresh-token:
+    post:
+      tags: [auth]
+      summary: Create auth refresh-token
+      operationId: postauth_refresh_token
+      security: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf: [{ $ref: "#/components/schemas/AuthTokens" }]
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      summary: Create auth resend-verification
+      operationId: postauth_resend_verification
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/signup:
+    post:
+      tags: [auth]
+      summary: Create auth signup
+      operationId: postauth_signup
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consent:
+                  $ref: "#/components/schemas/ConsentInput"
+              description: >-
+                consent is optional so older app builds can still sign up; an
+                account without it reports consent_required=true. When
+                present it must carry all three versions, otherwise 400.
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SignUpResponse" }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /auth/verify-email:
+    get:
+      tags: [auth]
+      summary: Get auth verify-email
+      operationId: getauth_verify_email
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /badges:
+    get:
+      tags: [misc]
+      summary: Get badges
+      operationId: getbadges
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /banners:
+    get:
+      tags: [misc]
+      summary: Get banners
+      operationId: getbanners
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /categories:
+    get:
+      tags: [misc]
+      summary: Get categories
+      operationId: getcategories
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /counting/progress:
+    post:
+      tags: [misc]
+      summary: Create counting progress
+      operationId: postcounting_progress
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /counting/questions:
+    get:
+      tags: [misc]
+      summary: Get counting questions
+      operationId: getcounting_questions
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /dongeng-categories:
+    get:
+      tags: [dongeng]
+      summary: Get dongeng-categories
+      operationId: getdongeng_categories
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /fairy-tales:
+    get:
+      tags: [dongeng]
+      summary: Get fairy-tales
+      operationId: getfairy_tales
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /fairy-tales/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [dongeng]
+      summary: Get fairy-tales
+      operationId: getfairy_tales_id
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /fairy-tales/{id}/play:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [dongeng]
+      summary: Create fairy-tales play
+      operationId: postfairy_tales_id_play
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [dongeng]
+      summary: Update fairy-tales play
+      operationId: putfairy_tales_id_play
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /fairy-tales/history:
+    get:
+      tags: [dongeng]
+      summary: Get fairy-tales history
+      operationId: getfairy_tales_history
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /forgot-password:
+    post:
+      tags: [auth]
+      summary: Create forgot-password
+      operationId: postforgot_password
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /growth:
+    get:
+      tags: [misc]
+      summary: Get growth
+      operationId: getgrowth
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [misc]
+      summary: Create growth
+      operationId: postgrowth
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /growth/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [misc]
+      summary: Update growth
+      operationId: putgrowth_id
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /health:
+    get:
+      tags: [misc]
+      summary: Get health
+      operationId: gethealth
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /notifications:
+    get:
+      tags: [misc]
+      summary: Get notifications
+      operationId: getnotifications
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /notifications/{id}/read:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [misc]
+      summary: Update notifications read
+      operationId: patchnotifications_id_read
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /notifications/token:
+    post:
+      tags: [misc]
+      summary: Create notifications token
+      operationId: postnotifications_token
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /orders:
+    get:
+      tags: [payments]
+      summary: Get orders
+      operationId: getorders
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [payments]
+      summary: Get orders
+      operationId: getorders_id
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/create:
+    post:
+      tags: [payments]
+      summary: Create payment create
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
+        403 with code ALTERNATIVE_BILLING_DISABLED (and no order) while the
+        alternative_billing feature flag is off — this is the Midtrans checkout.
+      operationId: postpayment_create
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/create-product:
+    post:
+      tags: [payments]
+      summary: Create payment create-product
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
+        403 with code ALTERNATIVE_BILLING_DISABLED (and no order) while the
+        alternative_billing feature flag is off — this is the Midtrans checkout.
+      operationId: postpayment_create_product
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/play/create:
+    post:
+      tags: [payments]
+      summary: Create play create
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
+      operationId: postpayment_play_create
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/play/create-product:
+    post:
+      tags: [payments]
+      summary: Create play create-product
+      description: >-
+        409 with code SUBSCRIPTION_ACTIVE when the user has an active
+        subscription, except a subscription-package renewal inside the last 7
+        days of a non-Play subscription that does not auto-renew.
+      operationId: postpayment_play_create_product
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/play/report-external:
+    post:
+      tags: [payments]
+      summary: Create play report-external
+      operationId: postpayment_play_report_external
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/play/rtdn:
+    post:
+      tags: [payments]
+      summary: Create play rtdn
+      operationId: postpayment_play_rtdn
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/play/verify:
+    post:
+      tags: [payments]
+      summary: Create play verify
+      operationId: postpayment_play_verify
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /payment/webhook:
+    post:
+      tags: [payments]
+      summary: Create payment webhook
+      operationId: postpayment_webhook
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /premium/packs:
+    get:
+      tags: [misc]
+      summary: Get premium packs
+      description: >-
+        Each package includes nullable strike_price_idr, discount_percent and
+        promo_ends_at — a display-only promotional strike price that is never
+        charged. All three are null when no promo is active.
+      operationId: getpremium_packs
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /reset-password:
+    get:
+      tags: [auth]
+      summary: Get reset-password
+      operationId: getreset_password
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [auth]
+      summary: Create reset-password
+      operationId: postreset_password
+      security: []
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /tracing/items:
+    get:
+      tags: [misc]
+      summary: Get tracing items
+      operationId: gettracing_items
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /tracing/progress:
+    post:
+      tags: [misc]
+      summary: Create tracing progress
+      operationId: posttracing_progress
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /user:
+    put:
+      tags: [users]
+      summary: Update user
+      operationId: putuser
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /user/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [users]
+      summary: Get user
+      description: >-
+        subscription includes provider, auto_renew, renewable_from, can_renew
+        and (for Google Play subscriptions) play_product_id.
+      operationId: getuser_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/UserProfile" }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /user/consent:
+    post:
+      tags: [users]
+      summary: Record acceptance of the current legal documents
+      operationId: postuser_consent
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsentInput" }
+      responses:
+        "200":
+          description: Consent recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consent_required: { type: boolean }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /user/me:
+    delete:
+      tags: [users]
+      summary: Delete user me
+      operationId: deleteuser_me
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }

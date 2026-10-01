@@ -1,0 +1,58 @@
+name: Nightly
+
+# Re-runs the whole backend suite several times on one unchanged commit and
+# fails if any test gives different answers (design D7). A flaky test is
+# quarantined within a working day, not retried into silence.
+on:
+  schedule:
+    - cron: "0 19 * * *" # 02:00 WIB
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Number of repeated full runs
+        default: "3"
+
+env:
+  GO_VERSION: "1.26"
+  RUNS: ${{ github.event.inputs.runs || '3' }}
+
+jobs:
+  flaky-detection:
+    name: Flaky detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      # Each run's own pass/fail is deliberately ignored here: the comparison
+      # below is what decides the job, and it needs every run's report.
+      - name: Run the full suite repeatedly
+        env:
+          CI: "true"
+        run: |
+          mkdir -p reports
+          for i in $(seq 1 "$RUNS"); do
+            echo "::group::run $i of $RUNS"
+            gotestsum --junitfile "reports/nightly-$i.xml" --format testname \
+              -- -race -count=1 ./... || true
+            echo "::endgroup::"
+          done
+
+      - name: Compare runs
+        run: python3 scripts/flaky_detect.py reports/nightly-*.xml | tee flaky-report.txt; exit "${PIPESTATUS[0]}"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-reports
+          path: |
+            reports/nightly-*.xml
+            flaky-report.txt

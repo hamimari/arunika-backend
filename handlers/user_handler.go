@@ -30,11 +30,109 @@ type UpdateChild struct {
 }
 
 type UserHandler struct {
-	service *services.UserService
+	service         *services.UserService
+	deletionService *services.AccountDeletionService
+	authService     *services.AuthService
+	consentService  *services.ConsentService
 }
 
-func NewUserHandler(s *services.UserService) *UserHandler {
-	return &UserHandler{service: s}
+// userResponse nests is_subscribed and subscription alongside the Parent
+// fields the Flutter app's UserResponse.fromJson already expects them in
+// (json["data"]), derived from the same expiry-aware subscription status
+// GetUserByID computes.
+type userResponse struct {
+	*models.Parent
+	IsSubscribed bool                         `json:"is_subscribed"`
+	Subscription *services.SubscriptionDetail `json:"subscription,omitempty"`
+	// ConsentRequired is true when the user has not accepted the current
+	// version of every legal document; the app blocks on a consent screen.
+	ConsentRequired bool `json:"consent_required"`
+}
+
+// WithConsent enables the consent_required flag on the profile and the
+// POST /user/consent endpoint.
+func (h *UserHandler) WithConsent(cs *services.ConsentService) *UserHandler {
+	h.consentService = cs
+	return h
+}
+
+// RecordConsent handles POST /user/consent — a signed-in user accepting the
+// current legal documents, at first launch after an update. Rows are
+// appended, never overwritten, so earlier acceptances stay on record.
+func (h *UserHandler) RecordConsent(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID, err := uuid.Parse(userIDVal.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+	var in services.ConsentInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
+		return
+	}
+	if err := h.consentService.Record(userID, in, c.ClientIP(), c.Request.UserAgent()); err != nil {
+		if errors.Is(err, services.ErrConsentIncomplete) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		slog.Error("RecordConsent: failed", "user_id", userID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record consent"})
+		return
+	}
+	required, err := h.consentService.IsRequired(userID)
+	if err != nil {
+		slog.Error("RecordConsent: consent check failed", "user_id", userID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record consent"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"consent_required": required})
+}
+
+func NewUserHandler(s *services.UserService, ds *services.AccountDeletionService, as *services.AuthService) *UserHandler {
+	return &UserHandler{service: s, deletionService: ds, authService: as}
+}
+
+// DeleteAccount handles DELETE /user/me — deletes/anonymizes the
+// authenticated user's data (see AccountDeletionService) and revokes their
+// current session so the token used to call this can't be reused.
+func (h *UserHandler) DeleteAccount(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID, err := uuid.Parse(userIDVal.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	if err := h.deletionService.DeleteAccount(userID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		slog.Error("DeleteAccount: failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+		return
+	}
+
+	if jti, ok := c.Get("jti"); ok {
+		if exp, ok := c.Get("exp"); ok {
+			if expTime, ok := exp.(time.Time); ok {
+				if err := h.authService.RevokeToken(c, jti.(string), expTime); err != nil {
+					slog.Warn("DeleteAccount: failed to revoke current token", "error", err)
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
 }
 
 func (h *UserHandler) GetUserByID(c *gin.Context) {
@@ -46,13 +144,34 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.GetUserByID(id)
+	user, subscriptionStatus, subscription, err := h.service.GetUserByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": user})
+	consentRequired := false
+	if h.consentService != nil {
+		uid, err := uuid.Parse(id)
+		if err == nil {
+			consentRequired, err = h.consentService.IsRequired(uid)
+		}
+		if err != nil {
+			slog.Error("GetUserByID: consent check failed", "user_id", id, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load profile"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": userResponse{
+			Parent:          user,
+			IsSubscribed:    subscriptionStatus == "premium",
+			Subscription:    subscription,
+			ConsentRequired: consentRequired,
+		},
+		"subscription_status": subscriptionStatus,
+	})
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -75,7 +194,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		Address:      req.Address,
 	}
 
-	//layout := "2006-01-02T15:04:05.000"
 	for _, ch := range req.Child {
 		dob, err := time.Parse(time.RFC3339, ch.BirthDate)
 		if err != nil {
@@ -104,5 +222,18 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": updated})
+	// Re-fetch via GetUserByID to include subscription status
+	user, subscriptionStatus, subscription, err := h.service.GetUserByID(updated.ID.String())
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": updated})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data": userResponse{
+			Parent:       user,
+			IsSubscribed: subscriptionStatus == "premium",
+			Subscription: subscription,
+		},
+		"subscription_status": subscriptionStatus,
+	})
 }

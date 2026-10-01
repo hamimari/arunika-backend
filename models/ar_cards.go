@@ -1,26 +1,74 @@
 package models
 
 import (
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"time"
 )
 
 type ArCards struct {
-	ID        string     `gorm:"primaryKey;type:text"       json:"id"`
-	Type      string     `gorm:"type:text;not null"         json:"type"`
-	Title     string     `json:"title"`
-	FileURL   string     `gorm:"type:text;not null"         json:"file_url"`
-	SoundUrl  string     `gorm:"column:sound_url;type:text" json:"sound_url"`
-	ShortCode string     `gorm:"uniqueIndex;type:text"      json:"short_code"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	ID        string `gorm:"primaryKey;type:text"       json:"id"`
+	Type      string `gorm:"type:text;not null"         json:"type"`
+	Title     string `json:"title"`
+	FileURL   string `gorm:"type:text;not null"         json:"file_url"`
+	SoundUrl  string `gorm:"column:sound_url;type:text" json:"sound_url"`
+	ShortCode string `gorm:"uniqueIndex;type:text"      json:"short_code"`
+	Hidden    bool   `gorm:"column:hidden;default:false" json:"hidden"`
+	// IsFree makes the card free even when it has a product, without
+	// touching the product, its orders or entitlements, so it can be flipped
+	// back. A card with no product is free regardless.
+	IsFree bool `gorm:"column:is_free;not null;default:false" json:"is_free"`
+	// Legacy free-text fields (kept for backward compat, prefer CategoryID/SubCategoryID)
+	Category    string `gorm:"type:varchar(50)"           json:"category"`
+	SubCategory string `gorm:"column:sub_category;type:varchar(50)" json:"sub_category"`
+	ImageURL    string `gorm:"column:image_url;type:text" json:"image_url"`
+	Emoji       string `gorm:"type:varchar(20)"           json:"emoji"`
+	BgColor     string `gorm:"column:bg_color;type:varchar(20);default:'#FFF3E0'" json:"bg_color"`
+	// IsUnlocked, ProductID and PriceIdr are not DB columns — they're computed
+	// per-request by ArService from products/user_entitlements/user_subscriptions
+	// (see ArService.applyUnlocked). ProductID/PriceIdr are only set when the
+	// card has a linked (purchasable) product; nil means free content.
+	IsUnlocked bool       `gorm:"-" json:"is_unlocked"`
+	ProductID  *uuid.UUID `gorm:"-" json:"product_id,omitempty"`
+	PriceIdr   *int64     `gorm:"-" json:"price_idr,omitempty"`
+	// PlayProductID is the product's Google Play SKU — without it the app
+	// can't buy the card through Google Play Billing.
+	PlayProductID *string `gorm:"-" json:"play_product_id,omitempty"`
+	Description   string  `gorm:"type:text"                  json:"description"`
+	PrintableImg  string  `gorm:"column:printable_img;type:text;default:''" json:"printable_img"`
+	// Structured category FKs (from V12 migration)
+	CategoryID     *uuid.UUID      `gorm:"column:category_id;type:uuid"     json:"category_id,omitempty"`
+	SubCategoryID  *uuid.UUID      `gorm:"column:sub_category_id;type:uuid" json:"sub_category_id,omitempty"`
+	CategoryRef    *ArCardCategory `gorm:"foreignKey:CategoryID"            json:"category_ref,omitempty"`
+	SubCategoryRef *ArCardCategory `gorm:"foreignKey:SubCategoryID"         json:"sub_category_ref,omitempty"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	CreatedAt      time.Time       `json:"created_at"`
+	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
+	// Display-only promotional strike price, computed alongside PriceIdr.
+	StrikeDisplay
 }
 
 func FindCardById(db *gorm.DB, id string) (*ArCards, error) {
 	var arCard ArCards
-	result := db.Where("id = ?", id).First(&arCard)
+	result := db.Preload("CategoryRef").Preload("SubCategoryRef").Where("id = ? AND hidden = ?", id, false).First(&arCard)
 	if result.Error != nil {
 		return nil, result.Error
 	}
 	return &arCard, nil
+}
+
+func FindAllCards(db *gorm.DB, categoryID, subCategoryID string) ([]ArCards, error) {
+	// Hidden cards (backoffice visibility toggle) are not served to the app.
+	query := db.Model(&ArCards{}).Preload("CategoryRef").Preload("SubCategoryRef").Where("hidden = ?", false)
+	if categoryID != "" {
+		query = query.Where("category_id = ?", categoryID)
+	}
+	if subCategoryID != "" {
+		query = query.Where("sub_category_id = ?", subCategoryID)
+	}
+	var cards []ArCards
+	if err := query.Find(&cards).Error; err != nil {
+		return nil, err
+	}
+	return cards, nil
 }

@@ -4,6 +4,7 @@ import (
 	"arunika_backend/config"
 	"arunika_backend/registry"
 	"arunika_backend/routes"
+	"arunika_backend/services"
 	"context"
 	"errors"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,8 +40,10 @@ func main() {
 	db := config.DB
 	rdb := config.RDB
 
-	services := registry.NewServiceRegistry(db, rdb)
-	r := routes.SetupRouter(services, rdb)
+	svcRegistry := registry.NewServiceRegistry(db, rdb)
+	r := routes.SetupRouter(svcRegistry, rdb, db)
+
+	startPlayPurchaseReconciliation(svcRegistry.PaymentService)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -86,6 +90,37 @@ func main() {
 	log.Println("server stopped")
 }
 
+// startPlayPurchaseReconciliation periodically polls Google Play's Voided
+// Purchases API and revokes entitlement for any order whose purchase
+// Google has since refunded/canceled/charged-back — including its own
+// automatic refund of a Play Billing purchase left unacknowledged for 3
+// days, which RTDN isn't guaranteed to report on its own. No-ops when
+// Play Billing isn't configured. See services.PaymentService.ReconcileVoidedPurchases.
+func startPlayPurchaseReconciliation(ps *services.PaymentService) {
+	if os.Getenv("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON") == "" {
+		return
+	}
+	const interval = 6 * time.Hour
+	const lookback = 3 * 24 * time.Hour // covers the 3-day auto-refund window plus slack
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			count, err := ps.ReconcileVoidedPurchases(ctx, time.Now().Add(-lookback))
+			cancel()
+			if err != nil {
+				slog.Error("play purchase reconciliation failed", "error", err)
+				continue
+			}
+			if count > 0 {
+				slog.Info("play purchase reconciliation completed", "reconciled", count)
+			}
+		}
+	}()
+}
+
 // validateEnv checks that all required environment variables are present and
 // fails fast before any connections are made.
 func validateEnv() {
@@ -95,6 +130,8 @@ func validateEnv() {
 		"JWT_SECRET",
 		"SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS",
 		"APP_DOMAIN",
+		"MIDTRANS_SERVER_KEY", "MIDTRANS_CLIENT_KEY",
+		"FIREBASE_SERVICE_ACCOUNT_JSON",
 	}
 	missing := false
 	for _, key := range required {
@@ -105,6 +142,12 @@ func validateEnv() {
 	}
 	if missing {
 		log.Fatal("aborting: one or more required environment variables are missing")
+	}
+
+	// APP_DOMAIN prefixes every emailed link (verify-email, reset-password).
+	// Without a scheme, mail clients render it as plain text, not a link.
+	if domain := os.Getenv("APP_DOMAIN"); !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		log.Fatalf("aborting: APP_DOMAIN %q must start with http:// or https://", domain)
 	}
 
 	// Warn if JWT_SECRET is too short (minimum 32 characters recommended)

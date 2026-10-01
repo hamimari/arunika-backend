@@ -1,0 +1,117 @@
+name: PR
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^arunika_backend$' || true)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.14.0
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      # v1.12.0 and earlier fail to build on Go 1.26 (stale x/tools dep).
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      # Docker is present on GitHub-hosted Linux runners, so the
+      # Testcontainers-backed database and API suites run here. CI=true makes
+      # tests/db and tests/api fail rather than skip if Postgres cannot start,
+      # so their coverage can never be silently lost.
+      - name: Run tests
+        env:
+          CI: "true"
+        run: |
+          mkdir -p reports
+          gotestsum --junitfile reports/junit.xml --format testname \
+            -- -race -coverpkg=./... -coverprofile=cover.out ./...
+
+      # Enforcing now that Phase 2 has lifted the baselines: a pull request
+      # may not reduce coverage for any package. The absolute per-package
+      # floors from the strategy (handlers 70%, middlewares 90%) are not met
+      # yet, so this enforces "no regression" rather than those targets.
+      - name: Coverage ratchet
+        if: always()
+        env:
+          RATCHET_ENFORCE: "1"
+        run: python3 scripts/coverage-ratchet.py
+
+      - name: Report results
+        uses: dorny/test-reporter@v1
+        # Annotate the diff even when the suite failed — that is when it matters.
+        if: always()
+        with:
+          name: Backend tests
+          path: reports/junit.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: cover.out
+          retention-days: 7
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - run: go build ./...
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, so a push scan can see every new commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Scans the commits this pull request or push adds; reviewed historical
+      # findings are listed in .gitleaksignore.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1

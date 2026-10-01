@@ -1,0 +1,43 @@
+name: Publish API spec
+
+# openapi.yaml is the contract the Flutter app and the backoffice check
+# themselves against. Publishing it on every merge gives those repos a stable
+# thing to fetch, so their vendored copies can be refreshed automatically
+# rather than by someone remembering to copy a file.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "openapi.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish openapi.yaml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate before publishing
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go.sum
+
+      # Never publish a spec that does not match the router — the whole point
+      # is that consumers can trust it.
+      - name: Verify the spec matches the router
+        env:
+          CI: "true"
+        run: go test ./tests/contract/ -run "TestSpec_"
+
+      - name: Upload spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: openapi.yaml
+          retention-days: 90

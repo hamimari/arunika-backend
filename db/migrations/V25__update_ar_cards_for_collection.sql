@@ -1,0 +1,8 @@
+ALTER TABLE ar_cards
+    ADD COLUMN IF NOT EXISTS category     VARCHAR(50)  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS sub_category VARCHAR(50)  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS image_url    TEXT         DEFAULT '',
+    ADD COLUMN IF NOT EXISTS emoji        VARCHAR(20)  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS bg_color     VARCHAR(20)  DEFAULT '#FFF3E0',
+    ADD COLUMN IF NOT EXISTS is_unlocked  BOOLEAN      DEFAULT false,
+    ADD COLUMN IF NOT EXISTS description  TEXT         DEFAULT '';
