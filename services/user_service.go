@@ -152,12 +152,21 @@ func (s *UserService) updateUserTx(req *models.Parent) (*models.Parent, error) {
 				if !ok {
 					return fmt.Errorf("child %d not found", c.ID)
 				}
+				// Growth categories depend on birth date and sex.
+				profileChanged := !sameDate(child.DateOfBirth, dob) || child.Gender != c.Gender
 				child.Name = c.Name
 				child.DateOfBirth = dob
 				child.Gender = c.Gender
 				child.UpdatedAt = time.Now()
 				keepIDs = append(keepIDs, c.ID)
-				tx.Save(child)
+				if err := tx.Save(child).Error; err != nil {
+					return err
+				}
+				if profileChanged {
+					if err := RecomputeChildGrowth(tx, child); err != nil {
+						return err
+					}
+				}
 			} else {
 				// add new
 				newChildren = append(newChildren, models.Children{
@@ -202,4 +211,11 @@ func (s *UserService) alternativeBillingEnabled() bool {
 		return false
 	}
 	return flag.IsEnabled
+}
+
+// sameDate compares calendar dates, ignoring time of day and zone.
+func sameDate(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }

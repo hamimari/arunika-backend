@@ -97,80 +97,104 @@ func TestHorizontal_UserProfileOfAnotherUser_IsForbidden(t *testing.T) {
 	assert.NotContains(t, string(res.Body), b.Email)
 }
 
-// Growth records hang off a child, and the child belongs to a parent, so every
-// /growth route must check that the child is the caller's. A foreign child must
-// look exactly like a missing one.
+// Growth measurements hang off a child, and the child belongs to a parent, so
+// every /children/:childId/growth route must check that the child is the
+// caller's and that the measurement is that child's. A foreign child or
+// measurement must look exactly like a missing one.
 
-func TestHorizontal_GrowthRecordsOfAnotherUsersChild_CannotBeRead(t *testing.T) {
+// growthFixture gives b's child a usable profile and one measurement.
+func growthFixture(t *testing.T, env *Env, b *Account) (child uuid.UUID, m models.GrowthMeasurement) {
+	t.Helper()
+	child = env.ChildID(t, b)
+	require.NoError(t, env.DB.Model(&models.Children{}).Where("id = ?", child).
+		Updates(map[string]interface{}{"gender": "Laki-Laki", "date_of_birth": time.Now().AddDate(-3, 0, 0)}).Error)
+	w := 15.5
+	m = models.GrowthMeasurement{ChildID: child, MeasuredOn: time.Now().AddDate(0, -1, 0), WeightKg: &w, Position: "standing", AgeDays: 1065}
+	require.NoError(t, env.DB.Create(&m).Error)
+	return child, m
+}
+
+func TestHorizontal_GrowthOfAnotherUsersChild_CannotBeRead(t *testing.T) {
 	t.Parallel()
 	env := NewEnv(t)
 	a, b := env.Register(t), env.Register(t)
-	child := env.ChildID(t, b)
-	rec := models.GrowthRecord{ChildID: child, WeightKg: 15.5, HeightCm: 98, RecordedAt: time.Now()}
-	require.NoError(t, env.DB.Create(&rec).Error)
+	child, m := growthFixture(t, env, b)
 
-	own := env.GET("/growth?child_id="+child.String(), b.Token)
+	own := env.GET("/children/"+child.String()+"/growth", b.Token)
 	require.Equal(t, http.StatusOK, own.Code)
-	require.Contains(t, string(own.Body), rec.ID.String(), "sanity: the parent sees their child's records")
+	require.Contains(t, string(own.Body), m.ID.String(), "sanity: the parent sees their child's measurements")
 
-	res := env.GET("/growth?child_id="+child.String(), a.Token)
-
+	res := env.GET("/children/"+child.String()+"/growth", a.Token)
 	assert.Equal(t, http.StatusNotFound, res.Code)
-	assert.NotContains(t, string(res.Body), rec.ID.String())
+	assert.NotContains(t, string(res.Body), m.ID.String())
 
-	unknown := env.GET("/growth?child_id="+uuid.NewString(), a.Token)
+	unknown := env.GET("/children/"+uuid.NewString()+"/growth", a.Token)
 	assert.Equal(t, res.Code, unknown.Code, "a foreign child and a nonexistent one must be indistinguishable")
 	assert.JSONEq(t, string(res.Body), string(unknown.Body))
 }
 
-func TestHorizontal_GrowthRecordOfAnotherUsersChild_CannotBeCreated(t *testing.T) {
+func TestHorizontal_GrowthOfAnotherUsersChild_CannotBeCreated(t *testing.T) {
 	t.Parallel()
 	env := NewEnv(t)
 	a, b := env.Register(t), env.Register(t)
-	child := env.ChildID(t, b)
+	child, _ := growthFixture(t, env, b)
 
-	res := env.POST("/growth", a.Token, map[string]interface{}{
-		"child_id": child.String(), "weight_kg": 2, "height_cm": 2,
+	res := env.POST("/children/"+child.String()+"/growth/measurements", a.Token, map[string]interface{}{
+		"measured_on": time.Now().Format("2006-01-02"), "weight_kg": 2, "position": "standing",
 	})
 
 	assert.Equal(t, http.StatusNotFound, res.Code)
 	var count int64
-	env.DB.Model(&models.GrowthRecord{}).Where("child_id = ?", child).Count(&count)
-	assert.Zero(t, count, "nothing may be written to another user's child")
+	env.DB.Model(&models.GrowthMeasurement{}).Where("child_id = ?", child).Count(&count)
+	assert.Equal(t, int64(1), count, "nothing may be written to another user's child")
 }
 
-func TestHorizontal_GrowthRecordOfAnotherUsersChild_CannotBeEdited(t *testing.T) {
+func TestHorizontal_GrowthOfAnotherUsersChild_CannotBeEditedDeletedOrRestored(t *testing.T) {
 	t.Parallel()
 	env := NewEnv(t)
 	a, b := env.Register(t), env.Register(t)
-	child := env.ChildID(t, b)
-	rec := models.GrowthRecord{ChildID: child, WeightKg: 15.5, HeightCm: 98, RecordedAt: time.Now()}
-	require.NoError(t, env.DB.Create(&rec).Error)
+	child, m := growthFixture(t, env, b)
+	ownChild := env.ChildID(t, a)
+	base := "/children/" + child.String() + "/growth/measurements/" + m.ID.String()
+	// The attacker's own child id with the victim's measurement id.
+	mixed := "/children/" + ownChild.String() + "/growth/measurements/" + m.ID.String()
 
-	res := env.PUT("/growth/"+rec.ID.String(), a.Token, map[string]float64{"weight_kg": 1, "height_cm": 1})
+	for _, path := range []string{base, mixed} {
+		assert.Equal(t, http.StatusNotFound, env.PATCH(path, a.Token, map[string]float64{"weight_kg": 1}).Code, path)
+		assert.Equal(t, http.StatusNotFound, env.Do(http.MethodDelete, path, a.Token, nil).Code, path)
+	}
+	var after models.GrowthMeasurement
+	require.NoError(t, env.DB.First(&after, "id = ?", m.ID).Error)
+	assert.Equal(t, 15.5, *after.WeightKg, "the measurement must be unchanged")
+	assert.Nil(t, after.DeletedAt, "the measurement must not be deleted")
 
-	assert.Equal(t, http.StatusNotFound, res.Code)
-	var after models.GrowthRecord
-	require.NoError(t, env.DB.First(&after, "id = ?", rec.ID).Error)
-	assert.Equal(t, 15.5, after.WeightKg, "the record must be unchanged")
+	// Once the owner deletes it, the attacker cannot restore it either.
+	require.Equal(t, http.StatusNoContent, env.Do(http.MethodDelete, base, b.Token, nil).Code)
+	for _, path := range []string{base, mixed} {
+		assert.Equal(t, http.StatusNotFound, env.POST(path+"/restore", a.Token, nil).Code, path)
+	}
+	require.NoError(t, env.DB.First(&after, "id = ?", m.ID).Error)
+	assert.NotNil(t, after.DeletedAt, "the measurement must stay deleted")
 }
 
-func TestGrowth_OwnerCanStillReadCreateAndEdit(t *testing.T) {
+func TestGrowth_OwnerCanReadCreateEditDeleteAndRestore(t *testing.T) {
 	t.Parallel()
 	env := NewEnv(t)
 	parent := env.Register(t)
-	child := env.ChildID(t, parent)
+	child, _ := growthFixture(t, env, parent)
+	base := "/children/" + child.String() + "/growth"
 
-	created := env.POST("/growth", parent.Token, map[string]interface{}{
-		"child_id": child.String(), "weight_kg": 12, "height_cm": 90,
+	created := env.POST(base+"/measurements", parent.Token, map[string]interface{}{
+		"measured_on": time.Now().AddDate(0, 0, -1).Format("2006-01-02"), "weight_kg": 14, "position": "standing",
 	})
 	require.Equal(t, http.StatusCreated, created.Code, string(created.Body))
 	id := created.Data()["id"].(string)
 
-	edited := env.PUT("/growth/"+id, parent.Token, map[string]float64{"weight_kg": 13, "height_cm": 91})
-	assert.Equal(t, http.StatusOK, edited.Code, string(edited.Body))
+	assert.Equal(t, http.StatusOK, env.PATCH(base+"/measurements/"+id, parent.Token, map[string]float64{"weight_kg": 14.2}).Code)
+	assert.Equal(t, http.StatusNoContent, env.Do(http.MethodDelete, base+"/measurements/"+id, parent.Token, nil).Code)
+	assert.Equal(t, http.StatusOK, env.POST(base+"/measurements/"+id+"/restore", parent.Token, nil).Code)
 
-	list := env.GET("/growth?child_id="+child.String(), parent.Token)
+	list := env.GET(base, parent.Token)
 	require.Equal(t, http.StatusOK, list.Code)
 	assert.Contains(t, string(list.Body), id)
 }

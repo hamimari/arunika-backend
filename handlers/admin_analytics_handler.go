@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"arunika_backend/services"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -72,4 +73,19 @@ func (h *AdminAnalyticsHandler) GetSubscriptionStats(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, stats)
+}
+
+// GET /admin/analytics/growth?days=30
+func (h *AdminAnalyticsHandler) GetGrowthMetrics(c *gin.Context) {
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
+	if days < 1 || days > 365 {
+		days = 30
+	}
+	m, err := h.svc.GetGrowthMetrics(days)
+	if err != nil {
+		slog.Error("growth metrics failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load growth metrics"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": m})
 }

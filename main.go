@@ -44,6 +44,7 @@ func main() {
 	r := routes.SetupRouter(svcRegistry, rdb, db)
 
 	startPlayPurchaseReconciliation(svcRegistry.PaymentService)
+	startGrowthPurge(svcRegistry.GrowthService)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -88,6 +89,29 @@ func main() {
 	}
 
 	log.Println("server stopped")
+}
+
+// startGrowthPurge hard-deletes growth measurements soft-deleted more than 30
+// days ago (the "Urungkan" window), once at startup and then daily.
+func startGrowthPurge(gs *services.GrowthService) {
+	purge := func() {
+		n, err := gs.PurgeDeleted()
+		if err != nil {
+			slog.Error("growth purge failed", "error", err)
+			return
+		}
+		if n > 0 {
+			slog.Info("growth purge completed", "purged", n)
+		}
+	}
+	go func() {
+		purge()
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			purge()
+		}
+	}()
 }
 
 // startPlayPurchaseReconciliation periodically polls Google Play's Voided

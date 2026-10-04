@@ -181,12 +181,14 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 
 	// ── Growth ────────────────────────────────────────────────────────────────
 	growthHandler := handlers.NewGrowthHandler(reg.GrowthService)
-	growth := r.Group("/growth")
+	growth := r.Group("/children/:childId/growth")
 	growth.Use(middlewares.JWTAuthMiddleware(rdb))
 	{
-		growth.POST("", growthHandler.SaveRecord)
-		growth.GET("", growthHandler.GetHistory)
-		growth.PUT("/:id", growthHandler.UpdateRecord)
+		growth.GET("", growthHandler.Summary)
+		growth.POST("/measurements", growthHandler.Create)
+		growth.PATCH("/measurements/:id", growthHandler.Update)
+		growth.DELETE("/measurements/:id", growthHandler.Delete)
+		growth.POST("/measurements/:id/restore", growthHandler.Restore)
 	}
 
 	// ── Admin ─────────────────────────────────────────────────────────────────
@@ -220,6 +222,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.GET("/analytics/popular-features", adminAnalyticsHandler.GetPopularFeatures)
 		admin.GET("/analytics/payments", adminAnalyticsHandler.GetPaymentMetrics)
 		admin.GET("/analytics/subscription-stats", adminAnalyticsHandler.GetSubscriptionStats)
+		admin.GET("/analytics/growth", adminAnalyticsHandler.GetGrowthMetrics)
 
 		// Payments (individual transaction history)
 		admin.GET("/payments", adminPaymentHandler.List)

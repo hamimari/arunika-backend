@@ -49,7 +49,119 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    GrowthNotFound:
+      description: The child is not the caller's, or the measurement is not that child's (indistinguishable from missing).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    GrowthInvalid:
+      description: The measurement cannot be stored.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    GrowthMeasurement:
+      description: The measurement
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: "#/components/schemas/GrowthMeasurement" }
   schemas:
+    GrowthError:
+      type: object
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [CHILD_NOT_FOUND, MEASUREMENT_NOT_FOUND, CLIENT_ID_CONFLICT, PROFILE_INCOMPLETE, DATE_OUT_OF_RANGE, VALUE_REQUIRED, INVALID_VALUE, INVALID_POSITION, OUTLIER_NEEDS_CONFIRM]
+        indicators:
+          description: For OUTLIER_NEEDS_CONFIRM, the implausible indicators.
+          type: array
+          items: { type: string, enum: [hfa, wfa] }
+    GrowthMeasurementCreate:
+      type: object
+      required: [measured_on, position]
+      properties:
+        client_id: { type: string, format: uuid, description: Idempotency key; a retry returns the existing row. }
+        measured_on: { type: string, format: date }
+        height_cm: { type: [number, "null"], description: "One decimal. Height or weight, or both." }
+        weight_kg: { type: [number, "null"] }
+        position: { type: string, enum: [standing, recumbent] }
+        confirm_outlier: { type: boolean, default: false, description: Store a value outside WHO flag limits. }
+    GrowthMeasurementUpdate:
+      type: object
+      properties:
+        measured_on: { type: string, format: date }
+        height_cm: { type: [number, "null"] }
+        weight_kg: { type: [number, "null"] }
+        position: { type: string, enum: [standing, recumbent] }
+        confirm_outlier: { type: boolean, default: false }
+    GrowthIndicator:
+      type: [object, "null"]
+      description: Null when the measurement has no value for this indicator. z is internal; the app never shows it.
+      properties:
+        z: { type: [number, "null"], description: Null past 60 months. }
+        category:
+          type: string
+          enum: [severely_stunted, stunted, normal, tall, severely_underweight, underweight, risk_overweight, out_of_range]
+    GrowthMeasurement:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        client_id: { type: [string, "null"], format: uuid }
+        measured_on: { type: string, format: date }
+        height_cm: { type: [number, "null"] }
+        weight_kg: { type: [number, "null"] }
+        position: { type: string, enum: [standing, recumbent] }
+        age_days: { type: integer }
+        age_label: { type: string, examples: ["3 tahun 2 bulan"] }
+        hfa: { $ref: "#/components/schemas/GrowthIndicator" }
+        wfa: { $ref: "#/components/schemas/GrowthIndicator" }
+        flagged: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    GrowthLatestValue:
+      type: [object, "null"]
+      properties:
+        value: { type: number }
+        category: { type: [string, "null"] }
+        measured_on: { type: string, format: date }
+        delta_from_previous: { type: number, description: Omitted when there is no earlier value. }
+    GrowthSummary:
+      type: object
+      properties:
+        profile_complete: { type: boolean, description: False when the child's birth date or sex is missing or unrecognized. }
+        child:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            sex: { type: string, enum: [male, female, ""] }
+            birth_date: { type: string }
+            age_label: { type: string }
+            over_60_months: { type: boolean }
+        latest_height: { $ref: "#/components/schemas/GrowthLatestValue" }
+        latest_weight: { $ref: "#/components/schemas/GrowthLatestValue" }
+        measurements:
+          type: array
+          items: { $ref: "#/components/schemas/GrowthMeasurement" }
+    GrowthMetrics:
+      type: object
+      properties:
+        days: { type: integer }
+        active_parents: { type: integer }
+        activated_parents: { type: integer }
+        activation_rate: { type: number }
+        habit_rate: { type: number }
+        created_measurements: { type: integer }
+        corrections_per_100: { type: number }
+        outlier_confirmed_share: { type: number }
+        category_distribution:
+          type: object
+          properties:
+            hfa: { type: object, additionalProperties: { type: integer } }
+            wfa: { type: object, additionalProperties: { type: integer } }
     Error:
       type: object
       properties:
@@ -211,6 +323,28 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/analytics/growth:
+    get:
+      tags: [admin]
+      summary: Tumbuh Kembang aggregate metrics (no per-child data)
+      operationId: getadmin_analytics_growth
+      security: [{ adminAuth: [] }]
+      parameters:
+        - { name: days, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 365, default: 30 } }
+      responses:
+        "200":
+          description: Metrics over the last N days
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/GrowthMetrics" }
         "4XX":
           description: Client error
           content:
@@ -2524,61 +2658,94 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-  /growth:
-    get:
-      tags: [misc]
-      summary: Get growth
-      operationId: getgrowth
-      security: [{ bearerAuth: [] }]
-      responses:
-        "2XX":
-          description: Success
-          content:
-            application/json:
-              schema: { type: object }
-        "4XX":
-          description: Client error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-    post:
-      tags: [misc]
-      summary: Create growth
-      operationId: postgrowth
-      security: [{ bearerAuth: [] }]
-      responses:
-        "2XX":
-          description: Success
-          content:
-            application/json:
-              schema: { type: object }
-        "4XX":
-          description: Client error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-  /growth/{id}:
+  /children/{childId}/growth:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string }
-    put:
-      tags: [misc]
-      summary: Update growth
-      operationId: putgrowth_id
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [growth]
+      summary: Growth summary and all measurements of one of the caller's children
+      operationId: getchildren_childid_growth
       security: [{ bearerAuth: [] }]
       responses:
-        "2XX":
-          description: Success
+        "200":
+          description: Summary, newest measurement first
           content:
             application/json:
-              schema: { type: object }
-        "4XX":
-          description: Client error
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/GrowthSummary" }
+        "404": { $ref: "#/components/responses/GrowthNotFound" }
+  /children/{childId}/growth/measurements:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [growth]
+      summary: Add a measurement; the server computes age, z-scores and categories
+      operationId: postchildren_childid_growth_measurements
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GrowthMeasurementCreate" }
+      responses:
+        "201": { $ref: "#/components/responses/GrowthMeasurement" }
+        "200":
+          description: A measurement with this client_id already exists; it is returned unchanged
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/GrowthMeasurement" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/GrowthNotFound" }
+        "409":
+          description: client_id already used for another child
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GrowthError" }
+        "422": { $ref: "#/components/responses/GrowthInvalid" }
+  /children/{childId}/growth/measurements/{id}:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [growth]
+      summary: Edit a measurement; omitted fields are kept, null clears a value
+      operationId: patchchildren_childid_growth_measurements_id
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GrowthMeasurementUpdate" }
+      responses:
+        "200": { $ref: "#/components/responses/GrowthMeasurement" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/GrowthNotFound" }
+        "422": { $ref: "#/components/responses/GrowthInvalid" }
+    delete:
+      tags: [growth]
+      summary: Soft-delete a measurement (restorable for 30 days)
+      operationId: deletechildren_childid_growth_measurements_id
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/GrowthNotFound" }
+  /children/{childId}/growth/measurements/{id}/restore:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [growth]
+      summary: Undo a delete ("Urungkan")
+      operationId: postchildren_childid_growth_measurements_id_restore
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/GrowthMeasurement" }
+        "404": { $ref: "#/components/responses/GrowthNotFound" }
   /health:
     get:
       tags: [misc]

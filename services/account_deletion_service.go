@@ -41,8 +41,8 @@ func (s *AccountDeletionService) DeleteAccount(userID uuid.UUID) error {
 		}
 
 		if len(childIDs) > 0 {
-			if err := tx.Where("child_id IN ?", childIDs).Delete(&models.GrowthRecord{}).Error; err != nil {
-				return fmt.Errorf("delete growth records: %w", err)
+			if err := tx.Where("child_id IN ?", childIDs).Delete(&models.GrowthMeasurement{}).Error; err != nil {
+				return fmt.Errorf("delete growth measurements: %w", err)
 			}
 		}
 		if err := tx.Where("parent_id = ?", userID).Delete(&models.Children{}).Error; err != nil {

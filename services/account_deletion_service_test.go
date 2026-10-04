@@ -31,7 +31,7 @@ func TestAccountDeletionService_DeleteAccount_Success(t *testing.T) {
 		WithArgs(userID.String()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(childID))
 
-	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "growth_records" WHERE child_id IN ($1)`)).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "growth_measurements" WHERE child_id IN ($1)`)).
 		WithArgs(childID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 

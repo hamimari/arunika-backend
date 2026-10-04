@@ -204,3 +204,128 @@ func (s *AdminAnalyticsService) GetPaymentMetrics(from, to string) ([]PaymentMet
 	_ = json.Unmarshal(b, &rows)
 	return rows, nil
 }
+
+// GrowthMetrics are the Tumbuh Kembang PRD metrics, aggregate only: no child
+// names, birth dates, values or ids ever leave this query.
+type GrowthMetrics struct {
+	Days                  int     `json:"days"`
+	ActiveParents         int64   `json:"active_parents"`
+	ActivatedParents      int64   `json:"activated_parents"`
+	ActivationRate        float64 `json:"activation_rate"`
+	HabitRate             float64 `json:"habit_rate"`
+	CreatedMeasurements   int64   `json:"created_measurements"`
+	CorrectionsPer100     float64 `json:"corrections_per_100"`
+	OutlierConfirmedShare float64 `json:"outlier_confirmed_share"`
+	// CategoryDistribution counts children by the category of their latest
+	// height ("hfa") and weight ("wfa") measurement.
+	CategoryDistribution map[string]map[string]int64 `json:"category_distribution"`
+}
+
+// GetGrowthMetrics computes the growth metrics over the last N days.
+//
+//   - active parents: parents with a session in the window (the DAU source);
+//   - activated: parents with a measurement created in the window;
+//   - habit: of the parents whose first-ever measurement is in the window, the
+//     share that logged again on a later day within 45 days;
+//   - corrections: rows created in the window that were later edited or
+//     deleted, per 100 created;
+//   - outlier share: confirmed implausible rows among those created.
+func (s *AdminAnalyticsService) GetGrowthMetrics(days int) (*GrowthMetrics, error) {
+	key := fmt.Sprintf("analytics:growth:%d", days)
+	result, err := s.cached(key, 10*time.Minute, func() (interface{}, error) {
+		m := GrowthMetrics{Days: days, CategoryDistribution: map[string]map[string]int64{"hfa": {}, "wfa": {}}}
+		since := time.Now().AddDate(0, 0, -days)
+
+		if err := s.db.Raw(`SELECT COUNT(DISTINCT user_id) FROM user_sessions WHERE created_at >= ?`, since).
+			Scan(&m.ActiveParents).Error; err != nil {
+			return nil, err
+		}
+
+		var rows struct {
+			Activated int64
+			Created   int64
+			Edited    int64
+			Deleted   int64
+			Flagged   int64
+		}
+		if err := s.db.Raw(`
+			SELECT COUNT(DISTINCT c.parent_id)                                     AS activated,
+			       COUNT(*)                                                         AS created,
+			       COUNT(*) FILTER (WHERE g.updated_at > g.created_at + INTERVAL '1 second') AS edited,
+			       COUNT(*) FILTER (WHERE g.deleted_at IS NOT NULL)                 AS deleted,
+			       COUNT(*) FILTER (WHERE g.flagged)                                AS flagged
+			FROM growth_measurements g
+			JOIN children c ON c.id = g.child_id
+			WHERE g.created_at >= ?`, since).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		m.ActivatedParents, m.CreatedMeasurements = rows.Activated, rows.Created
+		if m.ActiveParents > 0 {
+			m.ActivationRate = ratio(rows.Activated, m.ActiveParents)
+		}
+		if rows.Created > 0 {
+			m.CorrectionsPer100 = ratio(rows.Edited+rows.Deleted, rows.Created) * 100
+			m.OutlierConfirmedShare = ratio(rows.Flagged, rows.Created)
+		}
+
+		var habit struct {
+			First  int64
+			Repeat int64
+		}
+		if err := s.db.Raw(`
+			WITH firsts AS (
+				SELECT c.parent_id, MIN(g.created_at) AS first_at
+				FROM growth_measurements g
+				JOIN children c ON c.id = g.child_id
+				GROUP BY c.parent_id
+				HAVING MIN(g.created_at) >= ?
+			)
+			SELECT COUNT(*) AS first,
+			       COUNT(*) FILTER (WHERE EXISTS (
+			           SELECT 1 FROM growth_measurements g2
+			           JOIN children c2 ON c2.id = g2.child_id
+			           WHERE c2.parent_id = f.parent_id
+			             AND g2.created_at::date > f.first_at::date
+			             AND g2.created_at <= f.first_at + INTERVAL '45 days'
+			       )) AS repeat
+			FROM firsts f`, since).Scan(&habit).Error; err != nil {
+			return nil, err
+		}
+		if habit.First > 0 {
+			m.HabitRate = ratio(habit.Repeat, habit.First)
+		}
+
+		for indicator, column := range map[string]string{"hfa": "hfa_category", "wfa": "wfa_category"} {
+			var dist []struct {
+				Category string
+				Count    int64
+			}
+			// column comes from the fixed map above, never from input.
+			if err := s.db.Raw(fmt.Sprintf(`
+				SELECT category, COUNT(*) AS count FROM (
+					SELECT DISTINCT ON (child_id) %[1]s AS category
+					FROM growth_measurements
+					WHERE deleted_at IS NULL AND %[1]s IS NOT NULL
+					ORDER BY child_id, measured_on DESC, created_at DESC
+				) latest
+				GROUP BY category`, column)).Scan(&dist).Error; err != nil {
+				return nil, err
+			}
+			for _, d := range dist {
+				m.CategoryDistribution[indicator][d.Category] = d.Count
+			}
+		}
+		return m, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	b, _ := json.Marshal(result)
+	var m GrowthMetrics
+	_ = json.Unmarshal(b, &m)
+	return &m, nil
+}
+
+func ratio(n, d int64) float64 {
+	return float64(int64(float64(n)/float64(d)*10000+0.5)) / 10000
+}
