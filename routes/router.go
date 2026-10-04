@@ -5,6 +5,8 @@ import (
 	"arunika_backend/middlewares"
 	"arunika_backend/registry"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -12,6 +14,21 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
+
+// allowedOrigins parses a comma-separated origin list. Unset means any origin,
+// which keeps local development and the E2E stack working.
+func allowedOrigins(raw string) []string {
+	var origins []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			origins = append(origins, strings.TrimSuffix(o, "/"))
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
+}
 
 func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) *gin.Engine {
 	r := gin.Default()
@@ -21,9 +38,10 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	// Security headers on every response
 	r.Use(middlewares.SecurityHeadersMiddleware())
 
-	// CORS — tighten AllowOrigins in production to your actual domain(s)
+	// CORS — only browsers enforce it (the mobile app sends no Origin), so in
+	// production CORS_ALLOWED_ORIGINS lists the backoffice and landing sites.
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     allowedOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
