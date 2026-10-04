@@ -156,3 +156,38 @@ func TestRoutes_EmailVerificationEndpointsRegistered(t *testing.T) {
 			"resend-verification must reject an unauthenticated caller")
 	})
 }
+
+// TestAllowedOrigins covers parsing CORS_ALLOWED_ORIGINS.
+func TestAllowedOrigins(t *testing.T) {
+	assert.Equal(t, []string{"*"}, allowedOrigins(""), "unset allows any origin")
+	assert.Equal(t, []string{"*"}, allowedOrigins(" , "))
+	assert.Equal(t,
+		[]string{"https://admin.haloarunika.com", "https://haloarunika.com"},
+		allowedOrigins(" https://admin.haloarunika.com/ ,https://haloarunika.com"))
+}
+
+// TestRoutes_CORSRestrictsOrigins checks that a configured list lets the
+// backoffice through and gives any other site no CORS grant.
+func TestRoutes_CORSRestrictsOrigins(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://admin.haloarunika.com,https://haloarunika.com")
+
+	db, _ := setupRouterDB(t)
+	rdb, _ := redismock.NewClientMock()
+	reg := registry.NewServiceRegistry(db, rdb)
+	r := SetupRouter(reg, rdb, db)
+
+	preflight := func(origin string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodOptions, "/admin/auth/login", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	ok := preflight("https://admin.haloarunika.com")
+	assert.Equal(t, "https://admin.haloarunika.com", ok.Header().Get("Access-Control-Allow-Origin"))
+
+	other := preflight("https://evil.example")
+	assert.Empty(t, other.Header().Get("Access-Control-Allow-Origin"))
+}

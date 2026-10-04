@@ -188,42 +188,66 @@ The policy across all three Arunika repositories:
 
 ### Option 1 — Docker Compose on a single server (VPS / EC2 / etc.)
 
-This is suitable for staging environments or small-scale production.
+Production runs this way on one VPS, with Caddy in front for TLS:
 
-**1. Copy required files to the server**
+| Site | Serves |
+|---|---|
+| `https://api.haloarunika.com` | this API (container `app`, `127.0.0.1:8080`) |
+| `https://admin.haloarunika.com` | the backoffice (container `backoffice`, `127.0.0.1:3000`) |
+| `https://haloarunika.com` | the landing site, static files in `/srv/haloarunika` |
 
-```bash
-scp Dockerfile docker-compose.yml .env.example user@your-server:/opt/arunika/
-```
+**1. Prepare the server**
 
-Or clone the repository directly on the server.
+Point A records for `haloarunika.com`, `www`, `api` and `admin` at the VPS. Allow only ports 22, 80 and 443 in the firewall, and install Docker and [Caddy](https://caddyserver.com/docs/install).
 
-**2. Create the production `.env`**
+**2. Clone the repos side by side**
 
-```bash
-cp .env.example .env
-# Edit .env with production values — use strong secrets
-nano .env
-```
-
-**3. Build and start**
+The backoffice image builds from `../arunika-backoffice`:
 
 ```bash
-docker compose up -d --build
+mkdir -p /opt/arunika && cd /opt/arunika
+git clone <backend repo> arunika-backend
+git clone <backoffice repo> arunika-backoffice
+git clone <landing repo> arunika-landing
 ```
 
-**4. Check status**
+**3. Create the production `.env`**
 
 ```bash
-docker compose ps
-docker compose logs -f app
+cd arunika-backend && cp .env.example .env && nano .env
 ```
 
-**5. Update to a new version**
+Use new strong values for `DB_PASSWORD`, `REDIS_PASSWORD` and `JWT_SECRET` (`openssl rand -base64 48`). Set `APP_DOMAIN=https://haloarunika.com`, `CORS_ALLOWED_ORIGINS=https://admin.haloarunika.com,https://haloarunika.com`, the Midtrans production keys and URLs, and the two service-account JSONs. Change the admin email and password in `db/seeds/R__seed_admin_user.sql` before the first start.
+
+**4. Build and start**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+`docker-compose.prod.yml` keeps Postgres and Redis off the host network and binds the app and backoffice to loopback. Docker's published ports bypass `ufw`, so don't start the base file alone on the server.
+
+**5. TLS and the landing site**
+
+```bash
+sudo mkdir -p /srv/haloarunika /var/log/caddy
+sudo rsync -a --delete --exclude '.git' --exclude scripts --exclude prerelease-reports \
+  ../arunika-landing/ /srv/haloarunika/
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+```
+
+**6. Check status**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+curl -I https://api.haloarunika.com/health
+```
+
+**7. Update to a new version**
 
 ```bash
 git pull
-docker compose up -d --build app
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build app
 ```
 
 Flyway will automatically run any new migration files on the next start of the `flyway` service. To run migrations independently before restarting the app:
@@ -280,9 +304,11 @@ All variables are required unless marked optional.
 | `SMTP_PASS` | SMTP password | `changeme` |
 | `SMTP_EMAIL` | From address on outgoing mail (optional, defaults to `SMTP_USER`) | `no-reply@example.com` |
 | `APP_DOMAIN` | Public URL of the application | `https://app.example.com` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API (optional; unset allows any) | `https://admin.haloarunika.com,https://haloarunika.com` |
 | `PORT` | HTTP port the server listens on (optional) | `8080` |
 | `MIDTRANS_SERVER_KEY` | Midtrans server key | `SB-Mid-server-…` |
 | `MIDTRANS_CLIENT_KEY` | Midtrans client key | `SB-Mid-client-…` |
+| `MIDTRANS_BASE_URL` / `MIDTRANS_CORE_API_URL` | Midtrans Snap and Core API hosts (optional; default to the sandbox) | `https://app.midtrans.com` / `https://api.midtrans.com` |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase service account JSON (raw content or file path) | `{"type":"service_account",…}` |
 
 > **Fail-fast**: the application will refuse to start if any required variable is missing.

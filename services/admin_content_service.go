@@ -124,7 +124,7 @@ func (s *AdminContentService) UpdateArCard(id string, input models.ArCards) (*mo
 	}
 	if err := s.db.Model(&item).Select(
 		"type", "title", "file_url", "sound_url", "short_code", "image_url", "printable_img",
-		"description",
+		"description", "category_id", "sub_category_id",
 	).Updates(input).Error; err != nil {
 		return nil, err
 	}
