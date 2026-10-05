@@ -67,9 +67,16 @@ func TestInspectImage(t *testing.T) {
 	assert.Equal(t, "image/webp", webp.mime)
 	assert.Equal(t, 512, *webp.width)
 
+	assert.False(t, *webp.hasAlpha)
+
 	png, err := inspectAsset("image", fixture(t, "square.png"))
 	require.NoError(t, err)
 	assert.Equal(t, "png", png.ext)
+	assert.False(t, *png.hasAlpha, "an RGBA PNG with every pixel opaque")
+
+	clear, err := inspectAsset("image", fixture(t, "transparent.png"))
+	require.NoError(t, err)
+	assert.True(t, *clear.hasAlpha)
 
 	_, err = inspectAsset("image", fixture(t, "photo.jpg"))
 	assert.Equal(t, AssetUnsupportedType, reason(err), "a JPEG is refused whatever it is named")

@@ -70,6 +70,7 @@ func (s *AssetService) Upload(ctx context.Context, adminID uuid.UUID, kind, orig
 		Width:        info.width,
 		Height:       info.height,
 		DurationMs:   info.durationMs,
+		HasAlpha:     info.hasAlpha,
 		OriginalName: truncate(originalName, 200),
 		CreatedBy:    adminID,
 	}

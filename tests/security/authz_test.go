@@ -244,6 +244,57 @@ func TestHorizontal_HurufProgressOfAnotherUsersChild_CannotBeReadOrWritten(t *te
 	assert.False(t, row.DengarDone, "the foreign write changed nothing")
 }
 
+// publishFreeAngkaLevel publishes a free one-object level straight in the DB.
+func publishFreeAngkaLevel(t *testing.T, env *Env) string {
+	t.Helper()
+	admin := models.AdminUser{Email: "angka-" + uuid.NewString() + "@example.test", PasswordHash: "x"}
+	require.NoError(t, env.DB.Create(&admin).Error)
+	obj := models.AngkaObject{Status: "published", Draft: models.JSONB(`{"name":"apel"}`), Content: models.JSONB(`{"name":"apel"}`)}
+	require.NoError(t, env.DB.Create(&obj).Error)
+	content := models.ToJSONB(models.AngkaLevelContent{
+		Name: "Hitung 1 sampai 5", Range: models.AngkaRange{Min: 1, Max: 5}, QuestionCount: 5,
+		ObjectIDs: []uuid.UUID{obj.ID}, Layout: "rows", Stars: models.AngkaStars{Three: 5, Two: 3},
+	})
+	level := models.AngkaLevel{SortOrder: 1, IsFree: true, Draft: content}
+	require.NoError(t, env.DB.Create(&level).Error)
+	v := models.AngkaLevelVersion{LevelID: level.ID, Version: 1, Content: content, PublishedBy: admin.ID}
+	require.NoError(t, env.DB.Create(&v).Error)
+	require.NoError(t, env.DB.Model(&level).Updates(map[string]interface{}{
+		"published_version_id": v.ID, "status": "published",
+	}).Error)
+	return level.ID.String()
+}
+
+func TestHorizontal_AngkaSessionsOfAnotherUsersChild_CannotBeReadOrWritten(t *testing.T) {
+	t.Parallel()
+	env := NewEnv(t)
+	a, b := env.Register(t), env.Register(t)
+	level := publishFreeAngkaLevel(t, env)
+	child := env.ChildID(t, b).String()
+	base := "/children/" + child + "/angka"
+
+	own := env.POST(base+"/sessions", b.Token, map[string]interface{}{"level_id": level})
+	require.Equal(t, http.StatusOK, own.Code, "sanity: the parent can start a session: %s", string(own.Body))
+	session := own.Data()["session_id"].(string)
+
+	read := env.GET(base+"/progress", a.Token)
+	assert.Equal(t, http.StatusNotFound, read.Code)
+	assert.NotContains(t, string(read.Body), session)
+	unknown := env.GET("/children/"+uuid.NewString()+"/angka/progress", a.Token)
+	assert.JSONEq(t, string(read.Body), string(unknown.Body), "a foreign child and a nonexistent one must be indistinguishable")
+
+	assert.Equal(t, http.StatusNotFound, env.POST(base+"/sessions", a.Token, map[string]interface{}{"level_id": level}).Code)
+	assert.Equal(t, http.StatusNotFound, env.PATCH(base+"/sessions/"+session, a.Token, map[string]int{"q": 1, "try": 1, "answer": 3}).Code)
+	assert.Equal(t, http.StatusNotFound, env.POST(base+"/sessions/"+session+"/complete", a.Token, nil).Code)
+
+	// Nor through the attacker's own child.
+	mine := "/children/" + env.ChildID(t, a).String() + "/angka/sessions/" + session
+	assert.Equal(t, http.StatusNotFound, env.PATCH(mine, a.Token, map[string]int{"q": 1, "try": 1, "answer": 3}).Code)
+	var stored models.AngkaSession
+	require.NoError(t, env.DB.Where("id = ?", session).First(&stored).Error)
+	assert.JSONEq(t, "[]", string(stored.Answers), "the foreign writes changed nothing")
+}
+
 // Iterating the live route table means a newly added /admin route is covered
 // the day it is registered, with no test to remember to write.
 func TestVertical_EveryAdminRoute_RejectsAnOrdinaryUser(t *testing.T) {

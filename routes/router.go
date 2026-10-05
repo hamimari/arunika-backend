@@ -209,6 +209,26 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		hurufProgress.PUT("/:letterId", hurufHandler.UpdateProgress)
 	}
 
+	// Belajar Angka (app). Non-free numbers and levels need Akses Premium,
+	// checked by AngkaService (402 PREMIUM_REQUIRED); a level whose
+	// prerequisite isn't completed answers 409 LEVEL_LOCKED.
+	angkaHandler := handlers.NewAngkaHandler(reg.AngkaService)
+	angka := r.Group("/learn/angka")
+	angka.Use(middlewares.JWTAuthMiddleware(rdb))
+	{
+		angka.GET("/manifest", angkaHandler.Manifest)
+		angka.GET("/numbers/:value", angkaHandler.Number)
+		angka.GET("/levels/:id", angkaHandler.Level)
+	}
+	angkaChild := r.Group("/children/:childId/angka")
+	angkaChild.Use(middlewares.JWTAuthMiddleware(rdb))
+	{
+		angkaChild.GET("/progress", angkaHandler.Progress)
+		angkaChild.POST("/sessions", angkaHandler.StartSession)
+		angkaChild.PATCH("/sessions/:id", angkaHandler.RecordTry)
+		angkaChild.POST("/sessions/:id/complete", angkaHandler.CompleteSession)
+	}
+
 	// Uploaded media, served by the API only with the local driver (dev and
 	// e2e); in production files are served from the R2 custom domain.
 	if dir := reg.MediaLocalDir; dir != "" {
@@ -297,6 +317,37 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.POST("/huruf/letters/:id/set-free", publisher, adminHuruf.SetFree)
 		admin.POST("/huruf/letters/:id/unset-free", publisher, adminHuruf.UnsetFree)
 		admin.PUT("/huruf/order", publisher, adminHuruf.Reorder)
+		// Belajar Angka content, with the same editor / publisher split.
+		adminAngka := handlers.NewAdminAngkaHandler(reg.AngkaAdminService)
+		admin.GET("/angka/objects", adminAngka.ListObjects)
+		admin.POST("/angka/objects", adminAngka.CreateObject)
+		admin.GET("/angka/objects/:id/draft", adminAngka.GetObjectDraft)
+		admin.PUT("/angka/objects/:id/draft", adminAngka.SaveObjectDraft)
+		admin.POST("/angka/objects/:id/publish", publisher, adminAngka.PublishObject)
+		admin.POST("/angka/objects/:id/hide", publisher, adminAngka.HideObject)
+		admin.POST("/angka/objects/:id/unhide", publisher, adminAngka.UnhideObject)
+		admin.DELETE("/angka/objects/:id", publisher, adminAngka.DeleteObject)
+		admin.GET("/angka/numbers", adminAngka.ListNumbers)
+		admin.PUT("/angka/numbers/:value/draft", adminAngka.SaveNumberDraft)
+		admin.POST("/angka/numbers/:value/publish", publisher, adminAngka.PublishNumber)
+		admin.POST("/angka/numbers/:value/hide", publisher, adminAngka.HideNumber)
+		admin.POST("/angka/numbers/:value/unhide", publisher, adminAngka.UnhideNumber)
+		admin.POST("/angka/numbers/:value/set-free", publisher, adminAngka.SetNumberFree)
+		admin.POST("/angka/numbers/:value/unset-free", publisher, adminAngka.UnsetNumberFree)
+		admin.GET("/angka/levels", adminAngka.ListLevels)
+		admin.POST("/angka/levels", adminAngka.CreateLevel)
+		admin.PUT("/angka/levels/order", publisher, adminAngka.ReorderLevels)
+		admin.GET("/angka/levels/:id/draft", adminAngka.GetLevelDraft)
+		admin.PUT("/angka/levels/:id/draft", adminAngka.SaveLevelDraft)
+		admin.POST("/angka/levels/:id/preview", adminAngka.PreviewLevel)
+		admin.GET("/angka/levels/:id/versions", adminAngka.LevelVersions)
+		admin.POST("/angka/levels/:id/publish", publisher, adminAngka.PublishLevel)
+		admin.POST("/angka/levels/:id/rollback/:version", publisher, adminAngka.RollbackLevel)
+		admin.POST("/angka/levels/:id/hide", publisher, adminAngka.HideLevel)
+		admin.POST("/angka/levels/:id/unhide", publisher, adminAngka.UnhideLevel)
+		admin.POST("/angka/levels/:id/set-free", publisher, adminAngka.SetLevelFree)
+		admin.POST("/angka/levels/:id/unset-free", publisher, adminAngka.UnsetLevelFree)
+		admin.DELETE("/angka/levels/:id", publisher, adminAngka.DeleteLevel)
 		admin.POST("/assets", adminAssets.Upload)
 		admin.GET("/audit-log", adminRoles.AuditLog)
 		admin.GET("/admins", adminRoles.List)

@@ -47,6 +47,13 @@ func (s *AccountDeletionService) DeleteAccount(userID uuid.UUID) error {
 			if err := tx.Where("child_id IN ?", childIDs).Delete(&models.LetterProgress{}).Error; err != nil {
 				return fmt.Errorf("delete letter progress: %w", err)
 			}
+			// Progress first: it points at the current session.
+			if err := tx.Where("child_id IN ?", childIDs).Delete(&models.AngkaLevelProgress{}).Error; err != nil {
+				return fmt.Errorf("delete angka progress: %w", err)
+			}
+			if err := tx.Where("child_id IN ?", childIDs).Delete(&models.AngkaSession{}).Error; err != nil {
+				return fmt.Errorf("delete angka sessions: %w", err)
+			}
 		}
 		if err := tx.Where("parent_id = ?", userID).Delete(&models.Children{}).Error; err != nil {
 			return fmt.Errorf("delete children: %w", err)

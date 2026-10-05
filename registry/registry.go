@@ -40,6 +40,8 @@ type ServiceRegistry struct {
 	AssetService           *services.AssetService
 	HurufService           *services.HurufService
 	HurufAdminService      *services.HurufAdminService
+	AngkaService           *services.AngkaService
+	AngkaAdminService      *services.AngkaAdminService
 	// MediaLocalDir is set when media are stored on local disk (dev, e2e)
 	// and served by the API under /media.
 	MediaLocalDir string
@@ -92,6 +94,8 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		AssetService:           assetSvc,
 		HurufService:           services.NewHurufService(db, assetSvc, entitlementSvc),
 		HurufAdminService:      services.NewHurufAdminService(db, assetSvc, auditSvc),
+		AngkaService:           services.NewAngkaService(db, assetSvc, entitlementSvc),
+		AngkaAdminService:      services.NewAngkaAdminService(db, assetSvc, auditSvc),
 		MediaLocalDir:          mediaDir,
 	}
 }

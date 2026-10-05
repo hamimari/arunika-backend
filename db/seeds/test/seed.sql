@@ -167,3 +167,66 @@ WHERE upper = 'A' AND published_version_id IS NULL;
 
 -- The app's Huruf flows need the module on.
 UPDATE app_feature_flags SET is_enabled = true WHERE key = 'belajar_huruf';
+
+-- ── Belajar Angka: three objects, numbers 1–10, Level 1 (free) and Level 2 ───
+--
+-- One transparent picture and one audio file serve every object and number;
+-- the e2e flows only need them to load.
+
+INSERT INTO content_assets (id, kind, storage_key, sha256, bytes, mime, width, height, duration_ms, has_alpha, original_name, created_by)
+SELECT v.id::uuid, v.kind, v.key, v.sha, v.bytes, v.mime, v.w, v.h, v.ms, v.alpha, v.name, a.id
+FROM (VALUES
+  ('e2e0a000-0000-0000-0000-000000000001', 'image', 'huruf/e2e-benda.png', 'e2e-benda-png', 2305,  'image/png',  256,  256,  NULL, TRUE, 'benda.png'),
+  ('e2e0a000-0000-0000-0000-000000000002', 'audio', 'huruf/e2e-a.mp3',     'e2e-angka-mp3', 16680, 'audio/mpeg', NULL, NULL, 1044, NULL, 'angka.mp3')
+) AS v(id, kind, key, sha, bytes, mime, w, h, ms, alpha, name)
+CROSS JOIN (SELECT id FROM admin_users WHERE email = 'admin@arunika.id') a
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO angka_objects (id, status, draft, content)
+SELECT v.id::uuid, 'published', c, c
+FROM (VALUES
+  ('e2e0a100-0000-0000-0000-000000000001', 'apel'),
+  ('e2e0a100-0000-0000-0000-000000000002', 'bola'),
+  ('e2e0a100-0000-0000-0000-000000000003', 'ikan')
+) AS v(id, name),
+LATERAL (SELECT jsonb_build_object(
+    'name', v.name, 'question_text', 'Ada berapa ' || v.name || '?',
+    'image_asset_id', 'e2e0a000-0000-0000-0000-000000000001',
+    'question_audio_id', 'e2e0a000-0000-0000-0000-000000000002') AS c) AS x
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE angka_numbers SET
+    draft = draft || jsonb_build_object('audio_asset_id', 'e2e0a000-0000-0000-0000-000000000002',
+                                         'object_id', 'e2e0a100-0000-0000-0000-000000000001'),
+    status = 'published'
+WHERE value <= 10 AND content IS NULL;
+UPDATE angka_numbers SET content = draft WHERE value <= 10 AND content IS NULL;
+
+INSERT INTO angka_levels (id, sort_order, is_free, draft)
+SELECT v.id::uuid, v.ord, v.free, jsonb_build_object(
+    'name', v.name, 'prerequisite_id', v.prereq,
+    'range', jsonb_build_object('min', 1, 'max', v.max), 'question_count', 10,
+    'object_ids', v.objects::jsonb, 'layout', 'scatter',
+    'stars', jsonb_build_object('three', 9, 'two', 7),
+    'feedback', jsonb_build_object('success', 'Hebat! Benar!', 'retry', 'Hampir benar!',
+        'hint', 'Sentuh {benda} satu per satu sambil menyebut 1, 2, 3…'))
+FROM (VALUES
+  ('e2e0a200-0000-0000-0000-000000000001', 1, TRUE,  'Hitung 1 sampai 5',  NULL, 5,
+   '["e2e0a100-0000-0000-0000-000000000001","e2e0a100-0000-0000-0000-000000000002"]'),
+  ('e2e0a200-0000-0000-0000-000000000002', 2, FALSE, 'Hitung 1 sampai 10', 'e2e0a200-0000-0000-0000-000000000001', 10,
+   '["e2e0a100-0000-0000-0000-000000000001","e2e0a100-0000-0000-0000-000000000002","e2e0a100-0000-0000-0000-000000000003"]')
+) AS v(id, ord, free, name, prereq, max, objects)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO angka_level_versions (id, level_id, version, content, published_by)
+SELECT ('e2e0a3' || substr(l.id::text, 7))::uuid, l.id, 1, l.draft, a.id
+FROM angka_levels l CROSS JOIN (SELECT id FROM admin_users WHERE email = 'admin@arunika.id') a
+WHERE l.id IN ('e2e0a200-0000-0000-0000-000000000001', 'e2e0a200-0000-0000-0000-000000000002')
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE angka_levels SET published_version_id = ('e2e0a3' || substr(id::text, 7))::uuid, status = 'published'
+WHERE id IN ('e2e0a200-0000-0000-0000-000000000001', 'e2e0a200-0000-0000-0000-000000000002')
+  AND published_version_id IS NULL;
+
+-- The app's Angka flows need the module on.
+UPDATE app_feature_flags SET is_enabled = true WHERE key = 'belajar_angka';

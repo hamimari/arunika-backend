@@ -41,6 +41,7 @@ type inspected struct {
 	width      *int
 	height     *int
 	durationMs *int
+	hasAlpha   *bool
 }
 
 // inspectAsset checks data against kind's rules, deciding the type from the
@@ -80,7 +81,30 @@ func inspectImage(data []byte) (*inspected, error) {
 		return nil, assetErr(AssetUnreadable)
 	}
 	out.width, out.height = &cfg.Width, &cfg.Height
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, assetErr(AssetUnreadable)
+	}
+	alpha := hasTransparency(img)
+	out.hasAlpha = &alpha
 	return &out, nil
+}
+
+// hasTransparency reports whether any pixel is less than fully opaque, which
+// Angka object pictures need (they sit on a tinted panel).
+func hasTransparency(img image.Image) bool {
+	if o, ok := img.(interface{ Opaque() bool }); ok {
+		return !o.Opaque()
+	}
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if _, _, _, a := img.At(x, y).RGBA(); a < 0xFFFF {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func inspectAudio(data []byte) (*inspected, error) {

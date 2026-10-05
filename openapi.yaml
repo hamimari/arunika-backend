@@ -137,6 +137,89 @@ components:
             type: object
             properties:
               data: { $ref: "#/components/schemas/Asset" }
+    AngkaNotFound:
+      description: >-
+        Unknown, unpublished or hidden number or level, an unknown session, or
+        a child that is not the caller's (indistinguishable from missing).
+        Codes NUMBER_NOT_FOUND, LEVEL_NOT_FOUND, SESSION_NOT_FOUND, CHILD_NOT_FOUND.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    AngkaLevelLocked:
+      description: The level's prerequisite is not completed by the child (code LEVEL_LOCKED).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    AngkaInvalid:
+      description: >-
+        INVALID_TRY (a try that doesn't fit the session: a different answer for
+        a recorded try, a skipped try, a try after a correct one, a wrong try
+        after 50 wrong ones, or on a completed session) or SESSION_INCOMPLETE.
+        A question stays open until it is answered correctly.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    AngkaAdminError:
+      description: >-
+        Client error. 403 ROLE_REQUIRED (publisher-only action), 404
+        OBJECT_NOT_FOUND / NUMBER_NOT_FOUND / LEVEL_NOT_FOUND / VERSION_NOT_FOUND,
+        409 DRAFT_CONFLICT / OBJECT_IN_USE / OBJECT_LAST_IN_LEVEL / LEVEL_IN_USE,
+        422 VALIDATION_FAILED (with fields) or INVALID_ORDER.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string }
+              fields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path: { type: string, example: range.max, description: "The draft field; numbers.N names a number without published audio" }
+                    code:
+                      type: string
+                      enum: [REQUIRED, TOO_LONG, TOO_LARGE, NOT_TRANSPARENT, NOT_FOUND, WRONG_KIND, INVALID_URL,
+                             NOT_PUBLISHED, OUT_OF_RANGE, LESS_THAN_MIN, INVALID, GREATER_THAN_THREE, LESS_THAN_TWO,
+                             GREATER_THAN_QUESTIONS, CYCLE, NUMBER_AUDIO_MISSING]
+    AngkaObjectDraft:
+      description: The object draft
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                allOf:
+                  - { $ref: "#/components/schemas/AngkaAdminObject" }
+                  - type: object
+                    properties:
+                      draft: { $ref: "#/components/schemas/AngkaObjectContent" }
+                      draft_rev: { type: integer }
+                      assets: { type: object, additionalProperties: { $ref: "#/components/schemas/Asset" } }
+    AngkaNumberDraft:
+      description: The number draft
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: "#/components/schemas/AngkaAdminNumber" }
+    AngkaLevelDraft:
+      description: The level draft
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                allOf:
+                  - { $ref: "#/components/schemas/AngkaAdminLevel" }
+                  - type: object
+                    properties:
+                      draft: { $ref: "#/components/schemas/AngkaLevelContent" }
+                      draft_rev: { type: integer }
   schemas:
     HurufStroke:
       type: object
@@ -273,6 +356,7 @@ components:
         width: { type: integer, nullable: true }
         height: { type: integer, nullable: true }
         duration_ms: { type: integer, nullable: true }
+        has_alpha: { type: boolean, nullable: true, description: "Images: whether any pixel is see-through (null for images uploaded before it was recorded)" }
         original_name: { type: string }
         created_at: { type: string, format: date-time }
     AuditEntry:
@@ -387,6 +471,193 @@ components:
           properties:
             hfa: { type: object, additionalProperties: { type: integer } }
             wfa: { type: object, additionalProperties: { type: integer } }
+    AngkaRange:
+      type: object
+      properties:
+        min: { type: integer, minimum: 1, maximum: 20 }
+        max: { type: integer, minimum: 1, maximum: 20 }
+    AngkaStars:
+      type: object
+      description: First-try correct answers needed for 3 and 2 stars.
+      properties:
+        three: { type: integer }
+        two: { type: integer }
+    AngkaLevelContent:
+      type: object
+      properties:
+        name: { type: string }
+        prerequisite_id: { type: string, format: uuid, nullable: true }
+        range: { $ref: "#/components/schemas/AngkaRange" }
+        question_count: { type: integer, minimum: 5, maximum: 20 }
+        object_ids: { type: array, items: { type: string, format: uuid } }
+        layout: { type: string, enum: [scatter, rows] }
+        stars: { $ref: "#/components/schemas/AngkaStars" }
+        feedback:
+          type: object
+          properties:
+            success: { type: string }
+            retry: { type: string }
+            hint: { type: string, description: "{benda} is replaced by the question's object name" }
+    AngkaObjectContent:
+      type: object
+      description: Each media slot holds an uploaded asset id or an external https URL; the asset id wins.
+      properties:
+        name: { type: string }
+        question_text: { type: string }
+        image_asset_id: { type: string, format: uuid, nullable: true }
+        image_url: { type: string }
+        question_audio_id: { type: string, format: uuid, nullable: true }
+        question_audio_url: { type: string }
+    AngkaNumberContent:
+      type: object
+      properties:
+        name: { type: string }
+        audio_asset_id: { type: string, format: uuid, nullable: true }
+        audio_url: { type: string }
+        object_id: { type: string, format: uuid, nullable: true }
+    AngkaObject:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        question_text: { type: string }
+        image_url: { type: string }
+        question_audio_url: { type: string }
+        hidden: { type: boolean }
+    AngkaCountAudio:
+      type: object
+      description: Published audio URL of each number, keyed "1".."n", for counting aloud.
+      additionalProperties: { type: string }
+    AngkaManifest:
+      type: object
+      properties:
+        premium: { type: boolean }
+        numbers:
+          type: array
+          items:
+            type: object
+            properties:
+              value: { type: integer }
+              name: { type: string }
+              is_free: { type: boolean }
+              locked: { type: boolean }
+        levels:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              range: { $ref: "#/components/schemas/AngkaRange" }
+              question_count: { type: integer }
+              prerequisite_id: { type: string, format: uuid, nullable: true, description: Set only when the prerequisite is itself visible }
+              is_free: { type: boolean }
+              locked: { type: boolean }
+              version: { type: integer }
+    AngkaNumber:
+      type: object
+      properties:
+        value: { type: integer }
+        name: { type: string }
+        audio_url: { type: string }
+        object: { allOf: [{ $ref: "#/components/schemas/AngkaObject" }], nullable: true }
+        count_audio: { $ref: "#/components/schemas/AngkaCountAudio" }
+    AngkaLevel:
+      allOf:
+        - { $ref: "#/components/schemas/AngkaLevelContent" }
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            version: { type: integer }
+            objects: { type: array, items: { $ref: "#/components/schemas/AngkaObject" } }
+            count_audio: { $ref: "#/components/schemas/AngkaCountAudio" }
+    AngkaAnswer:
+      type: object
+      properties:
+        q: { type: integer, description: 1-based question number }
+        tries: { type: array, items: { type: integer } }
+    AngkaSession:
+      type: object
+      description: A session pinned to the level version, seed and objects it started with; the app regenerates its questions from these.
+      properties:
+        session_id: { type: string, format: uuid }
+        level_id: { type: string, format: uuid }
+        level_version: { type: integer }
+        seed: { type: integer, format: int64, minimum: 0, maximum: 4294967295 }
+        status: { type: string, enum: [in_progress, completed, abandoned] }
+        object_ids: { type: array, items: { type: string, format: uuid } }
+        answers: { type: array, items: { $ref: "#/components/schemas/AngkaAnswer" } }
+        content: { $ref: "#/components/schemas/AngkaLevelContent" }
+        objects: { type: array, items: { $ref: "#/components/schemas/AngkaObject" } }
+        count_audio: { $ref: "#/components/schemas/AngkaCountAudio" }
+    AngkaProgress:
+      type: object
+      properties:
+        level_id: { type: string, format: uuid }
+        best_stars: { type: integer, minimum: 0, maximum: 3 }
+        completed: { type: boolean }
+        current_session:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            level_version: { type: integer }
+            seed: { type: integer, format: int64 }
+            object_ids: { type: array, items: { type: string, format: uuid } }
+            answers: { type: array, items: { $ref: "#/components/schemas/AngkaAnswer" } }
+            question_count: { type: integer }
+            answered: { type: integer, description: Questions answered correctly or out of tries }
+            updated_at: { type: string, format: date-time }
+    AngkaAdminStatus:
+      type: object
+      properties:
+        status: { type: string, enum: [draft, published, hidden] }
+        has_unpublished_changes: { type: boolean }
+        updated_by: { type: string }
+        updated_at: { type: string, format: date-time }
+    AngkaAdminObject:
+      allOf:
+        - { $ref: "#/components/schemas/AngkaAdminStatus" }
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            question_text: { type: string }
+            image_url: { type: string }
+            question_audio_url: { type: string }
+            used_in: { type: integer, description: Levels whose draft or any version use the object }
+    AngkaAdminNumber:
+      allOf:
+        - { $ref: "#/components/schemas/AngkaAdminStatus" }
+        - type: object
+          properties:
+            value: { type: integer }
+            name: { type: string }
+            audio_url: { type: string }
+            object_id: { type: string, format: uuid, nullable: true }
+            object_name: { type: string }
+            object_image_url: { type: string }
+            is_free: { type: boolean }
+            draft: { $ref: "#/components/schemas/AngkaNumberContent" }
+            draft_rev: { type: integer }
+            assets: { type: object, additionalProperties: { $ref: "#/components/schemas/Asset" } }
+    AngkaAdminLevel:
+      allOf:
+        - { $ref: "#/components/schemas/AngkaAdminStatus" }
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            sort_order: { type: integer }
+            is_free: { type: boolean }
+            version: { type: integer, nullable: true }
+            range: { $ref: "#/components/schemas/AngkaRange" }
+            question_count: { type: integer }
+            object_names: { type: array, items: { type: string } }
+            stars: { $ref: "#/components/schemas/AngkaStars" }
+            prerequisite_id: { type: string, format: uuid, nullable: true }
+            prerequisite_sort_order: { type: integer, nullable: true }
+            prerequisite_name: { type: string }
     Error:
       type: object
       properties:
@@ -3063,6 +3334,191 @@ paths:
         "402": { $ref: "#/components/responses/PremiumRequired" }
         "404": { $ref: "#/components/responses/HurufNotFound" }
         "422": { $ref: "#/components/responses/HurufInvalid" }
+  /learn/angka/manifest:
+    get:
+      tags: [angka]
+      summary: Published Belajar Angka numbers and levels for the caller, with lock state
+      description: >-
+        Carries an ETag over the whole body (it changes on any publish, reorder,
+        hide, free change or the caller's premium status). Send it back in
+        If-None-Match for a 304.
+      operationId: getlearn_angka_manifest
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: If-None-Match, in: header, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: The manifest
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AngkaManifest" }
+        "304": { description: Unchanged since the given ETag }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /learn/angka/numbers/{value}:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    get:
+      tags: [angka]
+      summary: A Kenal Angka card, with the audio to count from 1 to the number
+      operationId: getlearn_angka_numbers_value
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: The number
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AngkaNumber" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/PremiumRequired" }
+        "404": { $ref: "#/components/responses/AngkaNotFound" }
+  /learn/angka/levels/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [angka]
+      summary: A level's published content, objects (hidden ones included) and count audio
+      operationId: getlearn_angka_levels_id
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: The level
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AngkaLevel" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/PremiumRequired" }
+        "404": { $ref: "#/components/responses/AngkaNotFound" }
+  /children/{childId}/angka/progress:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [angka]
+      summary: Stars, completion and the in-progress session per level for one of the caller's children
+      operationId: getchildren_childid_angka_progress
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Progress rows, most recently updated first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AngkaProgress" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/AngkaNotFound" }
+  /children/{childId}/angka/sessions:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [angka]
+      summary: Start a level, or resume the child's in-progress session on it (unless restart)
+      description: Checks the child (404), the level (404), access (402), then the prerequisite (409), in that order.
+      operationId: postchildren_childid_angka_sessions
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level_id]
+              properties:
+                level_id: { type: string, format: uuid }
+                restart: { type: boolean, description: Abandon the in-progress session and start a new one }
+      responses:
+        "200":
+          description: The session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AngkaSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/PremiumRequired" }
+        "404": { $ref: "#/components/responses/AngkaNotFound" }
+        "409": { $ref: "#/components/responses/AngkaLevelLocked" }
+  /children/{childId}/angka/sessions/{id}:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [angka]
+      summary: Record one try; repeating a recorded try with the same answer is a no-op
+      description: Only ownership is checked, not access, so a level started before a subscription ended can be finished.
+      operationId: patchchildren_childid_angka_sessions_id
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [q, try, answer]
+              properties:
+                q: { type: integer, minimum: 1 }
+                try: { type: integer, minimum: 1 }
+                answer: { type: integer, minimum: 0, maximum: 99 }
+      responses:
+        "200":
+          description: The recorded try and the server's verdict
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      q: { type: integer }
+                      try: { type: integer }
+                      correct: { type: boolean }
+                      finished: { type: boolean, description: "Correct, or no tries left" }
+                      answers: { type: array, items: { $ref: "#/components/schemas/AngkaAnswer" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/AngkaNotFound" }
+        "422": { $ref: "#/components/responses/AngkaInvalid" }
+  /children/{childId}/angka/sessions/{id}/complete:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [angka]
+      summary: Score a finished session from its recorded tries and update progress (idempotent)
+      operationId: postchildren_childid_angka_sessions_id_complete
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: The server's result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      stars: { type: integer, minimum: 1, maximum: 3 }
+                      first_correct: { type: integer }
+                      best_stars: { type: integer }
+                      unlocked_level_ids: { type: array, items: { type: string, format: uuid } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/AngkaNotFound" }
+        "422": { $ref: "#/components/responses/AngkaInvalid" }
   /media/huruf/{file}:
     parameters:
       - { name: file, in: path, required: true, schema: { type: string } }
@@ -3258,6 +3714,427 @@ paths:
       responses:
         "204": { description: Reordered }
         "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/angka/objects:
+    get:
+      tags: [admin]
+      summary: The Belajar Angka object library (from drafts), with status and use count
+      operationId: getadmin_angka_objects
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Objects, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AngkaAdminObject" } }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+    post:
+      tags: [admin]
+      summary: Add a draft object
+      operationId: postadmin_angka_objects
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        "201": { $ref: "#/components/responses/AngkaObjectDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/objects/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [admin]
+      summary: Delete an object no level references (publisher role; 409 OBJECT_IN_USE otherwise)
+      operationId: deleteadmin_angka_objects_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Deleted }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/objects/{id}/draft:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: An object's editable draft and the assets it references
+      operationId: getadmin_angka_objects_id_draft
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/AngkaObjectDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+    put:
+      tags: [admin]
+      summary: Save the object draft (409 DRAFT_CONFLICT when draft_rev is stale)
+      operationId: putadmin_angka_objects_id_draft
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft, draft_rev]
+              properties:
+                draft: { $ref: "#/components/schemas/AngkaObjectContent" }
+                draft_rev: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/AngkaObjectDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/objects/{id}/publish:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Validate and publish the object draft (publisher role)
+      operationId: postadmin_angka_objects_id_publish
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Published }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/objects/{id}/hide:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Stop using the object in new questions (publisher role; 409 OBJECT_LAST_IN_LEVEL when a published level would have none left)
+      operationId: postadmin_angka_objects_id_hide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Hidden }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/objects/{id}/unhide:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Use a hidden object again (publisher role)
+      operationId: postadmin_angka_objects_id_unhide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Shown }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers:
+    get:
+      tags: [admin]
+      summary: Numbers 1–20 with their drafts
+      operationId: getadmin_angka_numbers
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Numbers in order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AngkaAdminNumber" } }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers/{value}/draft:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    put:
+      tags: [admin]
+      summary: Save a number's draft (409 DRAFT_CONFLICT when draft_rev is stale)
+      operationId: putadmin_angka_numbers_value_draft
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft, draft_rev]
+              properties:
+                draft: { $ref: "#/components/schemas/AngkaNumberContent" }
+                draft_rev: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/AngkaNumberDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers/{value}/publish:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    post:
+      tags: [admin]
+      summary: Validate and publish the number draft (publisher role)
+      operationId: postadmin_angka_numbers_value_publish
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Published }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers/{value}/hide:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    post:
+      tags: [admin]
+      summary: Hide a number from the Kenal Angka grid; its audio still counts aloud in levels (publisher role)
+      operationId: postadmin_angka_numbers_value_hide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Hidden }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers/{value}/unhide:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    post:
+      tags: [admin]
+      summary: Show a hidden number again (publisher role)
+      operationId: postadmin_angka_numbers_value_unhide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Shown }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers/{value}/set-free:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    post:
+      tags: [admin]
+      summary: Open the number without Akses Premium (publisher role)
+      operationId: postadmin_angka_numbers_value_set-free
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Set }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/numbers/{value}/unset-free:
+    parameters:
+      - { name: value, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 20 } }
+    post:
+      tags: [admin]
+      summary: Make the number premium (publisher role)
+      operationId: postadmin_angka_numbers_value_unset-free
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Unset }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels:
+    get:
+      tags: [admin]
+      summary: Every Hitung Benda level with status, version and draft summary
+      operationId: getadmin_angka_levels
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Levels in display order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AngkaAdminLevel" } }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+    post:
+      tags: [admin]
+      summary: Add a draft level at the end, with defaults and the last level as prerequisite
+      operationId: postadmin_angka_levels
+      security: [{ adminAuth: [] }]
+      responses:
+        "201": { $ref: "#/components/responses/AngkaLevelDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/order:
+    put:
+      tags: [admin]
+      summary: Set the display order; must list every level exactly once (publisher role)
+      operationId: putadmin_angka_levels_order
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        "204": { description: Reordered }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [admin]
+      summary: Delete a never-published level that no level requires (publisher role; 409 LEVEL_IN_USE otherwise)
+      operationId: deleteadmin_angka_levels_id
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Deleted }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/draft:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: A level's editable draft
+      operationId: getadmin_angka_levels_id_draft
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/AngkaLevelDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+    put:
+      tags: [admin]
+      summary: Save the level draft (409 DRAFT_CONFLICT when draft_rev is stale)
+      operationId: putadmin_angka_levels_id_draft
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft, draft_rev]
+              properties:
+                draft: { $ref: "#/components/schemas/AngkaLevelContent" }
+                draft_rev: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/AngkaLevelDraft" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/preview:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Generate sample questions for an unsaved draft and seed with the app's generator; saves nothing
+      operationId: postadmin_angka_levels_id_preview
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft]
+              properties:
+                draft: { $ref: "#/components/schemas/AngkaLevelContent" }
+                seed: { type: integer, format: int64, minimum: 0, maximum: 4294967295 }
+      responses:
+        "200":
+          description: The generated questions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      seed: { type: integer, format: int64 }
+                      count_audio: { $ref: "#/components/schemas/AngkaCountAudio" }
+                      questions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            count: { type: integer }
+                            size: { type: integer, description: Picture side in the 320 × 180 area }
+                            layout: { type: string, enum: [scatter, rows] }
+                            points:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  x: { type: integer }
+                                  y: { type: integer }
+                            object: { allOf: [{ $ref: "#/components/schemas/AngkaObject" }], nullable: true }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/versions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: Published versions, newest first
+      operationId: getadmin_angka_levels_id_versions
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        version: { type: integer }
+                        published_by: { type: string }
+                        published_at: { type: string, format: date-time }
+                        is_current: { type: boolean }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/publish:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Validate and publish the draft as the next version (publisher role)
+      operationId: postadmin_angka_levels_id_publish
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/HurufPublished" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/rollback/{version}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: version, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [admin]
+      summary: Republish an old version's content as a new version, and reset the draft to it (publisher role)
+      operationId: postadmin_angka_levels_id_rollback_version
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/HurufPublished" }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/hide:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Hide a level from the app; progress is kept (publisher role)
+      operationId: postadmin_angka_levels_id_hide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Hidden }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/unhide:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Show a hidden level again (publisher role)
+      operationId: postadmin_angka_levels_id_unhide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Shown }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/set-free:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Make this the only free sample level (publisher role)
+      operationId: postadmin_angka_levels_id_set-free
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Set }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
+  /admin/angka/levels/{id}/unset-free:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Make this level premium again (publisher role)
+      operationId: postadmin_angka_levels_id_unset-free
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Unset }
+        "4XX": { $ref: "#/components/responses/AngkaAdminError" }
   /admin/assets:
     post:
       tags: [admin]
