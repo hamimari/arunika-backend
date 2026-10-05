@@ -3,9 +3,11 @@ package routes
 import (
 	"arunika_backend/handlers"
 	"arunika_backend/middlewares"
+	"arunika_backend/models"
 	"arunika_backend/registry"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -191,6 +193,30 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		growth.POST("/measurements/:id/restore", growthHandler.Restore)
 	}
 
+	// Belajar Huruf (app). Access to non-free letters needs Akses Premium,
+	// checked per letter by HurufService (402 PREMIUM_REQUIRED).
+	hurufHandler := handlers.NewHurufHandler(reg.HurufService)
+	huruf := r.Group("/learn/huruf")
+	huruf.Use(middlewares.JWTAuthMiddleware(rdb))
+	{
+		huruf.GET("/manifest", hurufHandler.Manifest)
+		huruf.GET("/letters/:id", hurufHandler.Letter)
+	}
+	hurufProgress := r.Group("/children/:childId/huruf/progress")
+	hurufProgress.Use(middlewares.JWTAuthMiddleware(rdb))
+	{
+		hurufProgress.GET("", hurufHandler.Progress)
+		hurufProgress.PUT("/:letterId", hurufHandler.UpdateProgress)
+	}
+
+	// Uploaded media, served by the API only with the local driver (dev and
+	// e2e); in production files are served from the R2 custom domain.
+	if dir := reg.MediaLocalDir; dir != "" {
+		r.GET("/media/huruf/:file", func(c *gin.Context) {
+			c.File(filepath.Join(dir, "huruf", filepath.Base(c.Param("file"))))
+		})
+	}
+
 	// ── Admin ─────────────────────────────────────────────────────────────────
 	adminAuthHandler := handlers.NewAdminAuthHandler(reg.AdminAuthService)
 	adminContentHandler := handlers.NewAdminContentHandler(reg.AdminContentService)
@@ -253,6 +279,29 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.POST("/campaigns", adminCampaignHandler.Dispatch)
 
 		// App feature flags
+		// Belajar Huruf content. Editors edit drafts and upload; publishing
+		// actions need the publisher role (checked against the DB per request).
+		adminHuruf := handlers.NewAdminHurufHandler(reg.HurufAdminService)
+		adminAssets := handlers.NewAdminAssetHandler(reg.AssetService)
+		adminRoles := handlers.NewAdminRoleHandler(reg.AdminRoleService, reg.AuditService)
+		publisher := middlewares.RequireAdminRole(db, models.AdminRolePublisher)
+		admin.GET("/huruf/letters", adminHuruf.List)
+		admin.GET("/huruf/letters/:id/draft", adminHuruf.GetDraft)
+		admin.PUT("/huruf/letters/:id/draft", adminHuruf.SaveDraft)
+		admin.POST("/huruf/letters/:id/preview", adminHuruf.Preview)
+		admin.GET("/huruf/letters/:id/versions", adminHuruf.Versions)
+		admin.POST("/huruf/letters/:id/publish", publisher, adminHuruf.Publish)
+		admin.POST("/huruf/letters/:id/rollback/:version", publisher, adminHuruf.Rollback)
+		admin.POST("/huruf/letters/:id/hide", publisher, adminHuruf.Hide)
+		admin.POST("/huruf/letters/:id/unhide", publisher, adminHuruf.Unhide)
+		admin.POST("/huruf/letters/:id/set-free", publisher, adminHuruf.SetFree)
+		admin.POST("/huruf/letters/:id/unset-free", publisher, adminHuruf.UnsetFree)
+		admin.PUT("/huruf/order", publisher, adminHuruf.Reorder)
+		admin.POST("/assets", adminAssets.Upload)
+		admin.GET("/audit-log", adminRoles.AuditLog)
+		admin.GET("/admins", adminRoles.List)
+		admin.PATCH("/admins/:id/role", publisher, adminRoles.SetRole)
+
 		admin.GET("/feature-flags", featureFlagHandler.AdminList)
 		admin.PATCH("/feature-flags/:key", featureFlagHandler.AdminToggle)
 

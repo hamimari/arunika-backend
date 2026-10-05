@@ -43,3 +43,8 @@ tests/e2e/artifacts/
 
 # Pre-release gate output
 prerelease-reports/
+
+# Files uploaded through the E2E stack land in its mounted media directory;
+# only the committed e2e-* fixtures belong in git.
+db/seeds/test/media/huruf/*
+!db/seeds/test/media/huruf/e2e-*

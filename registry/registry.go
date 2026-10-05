@@ -2,6 +2,7 @@ package registry
 
 import (
 	"arunika_backend/services"
+	"arunika_backend/storage"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -34,6 +35,14 @@ type ServiceRegistry struct {
 	StrikePriceService     *services.StrikePriceService
 	AccountDeletionService *services.AccountDeletionService
 	ConsentService         *services.ConsentService
+	AuditService           *services.AuditService
+	AdminRoleService       *services.AdminRoleService
+	AssetService           *services.AssetService
+	HurufService           *services.HurufService
+	HurufAdminService      *services.HurufAdminService
+	// MediaLocalDir is set when media are stored on local disk (dev, e2e)
+	// and served by the API under /media.
+	MediaLocalDir string
 }
 
 func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
@@ -42,6 +51,14 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 	strikeSvc := services.NewStrikePriceService(db)
 	productSvc := services.NewProductService(db).WithStrikePricing(strikeSvc)
 	orderSvc := services.NewOrderService(db, productSvc)
+	mediaCfg := storage.ConfigFromEnv()
+	store := storage.MustNew(mediaCfg)
+	mediaDir := ""
+	if mediaCfg.Driver == storage.DriverLocal {
+		mediaDir = mediaCfg.LocalDir
+	}
+	auditSvc := services.NewAuditService(db)
+	assetSvc := services.NewAssetService(db, store, auditSvc)
 	return &ServiceRegistry{
 		DB:                     db,
 		AuthService:            services.NewAuthService(db, redis),
@@ -70,5 +87,11 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		StrikePriceService:     strikeSvc,
 		AccountDeletionService: services.NewAccountDeletionService(db),
 		ConsentService:         services.NewConsentService(db),
+		AuditService:           auditSvc,
+		AdminRoleService:       services.NewAdminRoleService(db, auditSvc),
+		AssetService:           assetSvc,
+		HurufService:           services.NewHurufService(db, assetSvc, entitlementSvc),
+		HurufAdminService:      services.NewHurufAdminService(db, assetSvc, auditSvc),
+		MediaLocalDir:          mediaDir,
 	}
 }

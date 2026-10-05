@@ -68,6 +68,18 @@ func (s *AdminAuthService) Logout(jti, refreshToken string, expiry time.Time) er
 	return nil
 }
 
+// Role returns the admin's content role, for the login and refresh responses.
+func (s *AdminAuthService) Role(adminID string) (string, error) {
+	var role string
+	err := s.db.Model(&models.AdminUser{}).
+		Where("id = ? AND is_deleted = false", adminID).
+		Pluck("role", &role).Error
+	if err == nil && role == "" {
+		err = errors.New("admin not found")
+	}
+	return role, err
+}
+
 // HashPassword creates a bcrypt hash at cost 12.
 func HashPassword(plain string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(plain), 12)

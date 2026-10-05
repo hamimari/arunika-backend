@@ -2,11 +2,13 @@
   ".": 0.0,
   "config": 0.0,
   "growth": 92.3,
-  "handlers": 55.4,
-  "middlewares": 88.1,
-  "models": 90.1,
+  "handlers": 56.9,
+  "hurufpath": 97.1,
+  "middlewares": 88.9,
+  "models": 91.2,
   "registry": 100.0,
   "routes": 100.0,
-  "services": 79.6,
+  "services": 80.2,
+  "storage": 93.6,
   "utils": 96.2
 }

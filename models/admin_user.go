@@ -11,12 +11,20 @@ type AdminUser struct {
 	ID           uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4();primaryKey" json:"id"`
 	Email        string    `gorm:"uniqueIndex;not null"                            json:"email"`
 	PasswordHash string    `gorm:"not null"                                        json:"-"`
+	Role         string    `gorm:"not null;default:publisher"                      json:"role"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	IsDeleted    bool      `gorm:"default:false"                                   json:"-"`
 }
 
 func (AdminUser) TableName() string { return "admin_users" }
+
+// Content roles. Editors edit drafts and upload assets; publishers can also
+// publish, hide, reorder, roll back and manage roles.
+const (
+	AdminRoleEditor    = "editor"
+	AdminRolePublisher = "publisher"
+)
 
 func FindAdminByEmail(db *gorm.DB, email string) (*AdminUser, error) {
 	var admin AdminUser

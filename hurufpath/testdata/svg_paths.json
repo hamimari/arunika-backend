@@ -1,0 +1,31 @@
+{
+  "comment": "Parity fixture for the Huruf stroke grammar: one open subpath of absolute M/L/Q/C on the 0..300 grid. Shared by the backend (Go), the app (Dart) and the backoffice (TypeScript).",
+  "cases": [
+    { "path": "M150 30 L70 260", "valid": true, "segments": 1 },
+    { "path": "M150 30 L230 260", "valid": true, "segments": 1 },
+    { "path": "M99,170 L201,170", "valid": true, "segments": 1 },
+    { "path": "M90 40 L90 260 L170 260", "valid": true, "segments": 2 },
+    { "path": "M90 40 L90 260 170 260", "valid": true, "segments": 2 },
+    { "path": "M90 40 90 260", "valid": true, "segments": 1 },
+    { "path": "M200 80 Q150 20 100 80 Q60 150 100 220", "valid": true, "segments": 2 },
+    { "path": "M200 80 C180 30 80 30 80 150 C80 270 180 270 200 220", "valid": true, "segments": 2 },
+    { "path": "M0 0 L300 300", "valid": true, "segments": 1 },
+    { "path": "M10.5 20.25 L.5 299.9", "valid": true, "segments": 1 },
+    { "path": "  M150 30   L70 260  ", "valid": true, "segments": 1 },
+    { "path": "", "valid": false },
+    { "path": "L70 260", "valid": false },
+    { "path": "M150 30", "valid": false },
+    { "path": "m150 30 l-80 230", "valid": false },
+    { "path": "M150 30 L70 260 Z", "valid": false },
+    { "path": "M10 10 A5 5 0 0 1 20 20", "valid": false },
+    { "path": "M10 10 H50", "valid": false },
+    { "path": "M150 30 L70", "valid": false },
+    { "path": "M150 30 Q10 10", "valid": false },
+    { "path": "M150 30 L70 260 M10 10 L20 20", "valid": false },
+    { "path": "M150 30 L-1 260", "valid": false },
+    { "path": "M150 30 L70 301", "valid": false },
+    { "path": "M150 30 L7e1 260", "valid": false },
+    { "path": "M150 30 L70 260 L", "valid": false },
+    { "path": "M150 30 L . 260", "valid": false }
+  ]
+}

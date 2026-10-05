@@ -5,6 +5,7 @@ import (
 	"arunika_backend/registry"
 	"arunika_backend/routes"
 	"arunika_backend/services"
+	"arunika_backend/storage"
 	"context"
 	"errors"
 	"log"
@@ -172,6 +173,11 @@ func validateEnv() {
 	// Without a scheme, mail clients render it as plain text, not a link.
 	if domain := os.Getenv("APP_DOMAIN"); !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
 		log.Fatalf("aborting: APP_DOMAIN %q must start with http:// or https://", domain)
+	}
+
+	// Media uploads: production must store on R2 behind a custom domain.
+	if err := storage.ConfigFromEnv().Validate(); err != nil {
+		log.Fatalf("aborting: %v", err)
 	}
 
 	// Warn if JWT_SECRET is too short (minimum 32 characters recommended)

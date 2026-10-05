@@ -67,7 +67,232 @@ components:
             type: object
             properties:
               data: { $ref: "#/components/schemas/GrowthMeasurement" }
+    PremiumRequired:
+      description: The letter needs an active Akses Premium subscription (code PREMIUM_REQUIRED).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    HurufNotFound:
+      description: Unknown, unpublished or hidden letter, or a child that is not the caller's (indistinguishable from missing).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    HurufInvalid:
+      description: Invalid progress (code INVALID_SCORE).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/GrowthError" }
+    HurufAdminError:
+      description: >-
+        Client error. 403 ROLE_REQUIRED (publisher-only action), 404
+        LETTER_NOT_FOUND / VERSION_NOT_FOUND / ADMIN_NOT_FOUND, 409
+        DRAFT_CONFLICT / LAST_PUBLISHER, 422 VALIDATION_FAILED (with fields),
+        INVALID_ORDER, INVALID_ROLE or INVALID_ASSET.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string }
+              fields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path: { type: string, example: dengar.word_audio_id }
+                    code: { type: string, enum: [REQUIRED, TOO_LONG, INVALID, NOT_FOUND, WRONG_KIND, INVALID_PATH, ORDER_INVALID] }
+    HurufDraft:
+      description: The draft
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                allOf:
+                  - { $ref: "#/components/schemas/HurufAdminLetter" }
+                  - type: object
+                    properties:
+                      draft: { $ref: "#/components/schemas/HurufContent" }
+                      draft_rev: { type: integer }
+                      assets: { type: object, additionalProperties: { $ref: "#/components/schemas/Asset" } }
+    HurufPublished:
+      description: The new version
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: object
+                properties:
+                  version: { type: integer }
+                  published_at: { type: string, format: date-time }
+    Asset:
+      description: The asset
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: "#/components/schemas/Asset" }
   schemas:
+    HurufStroke:
+      type: object
+      properties:
+        order: { type: integer, minimum: 1 }
+        label: { type: string }
+        path: { type: string, description: "One subpath of absolute M/L/Q/C on the 0..300 grid", example: "M150 30 L70 260" }
+    HurufContent:
+      type: object
+      description: A letter's editable content (draft and published versions share this shape).
+      properties:
+        upper: { type: string }
+        lower: { type: string }
+        kenali:
+          type: object
+          properties:
+            word: { type: string, maxLength: 20 }
+            highlight: { type: array, items: { type: integer } }
+            image_asset_id: { type: string, format: uuid, nullable: true }
+            image_url: { type: string, description: "External https URL, used when image_asset_id is null" }
+        dengar:
+          type: object
+          properties:
+            letter_audio_id: { type: string, format: uuid, nullable: true }
+            word_audio_id: { type: string, format: uuid, nullable: true }
+            letter_audio_url: { type: string, description: "External https URL, used when letter_audio_id is null" }
+            word_audio_url: { type: string, description: "External https URL, used when word_audio_id is null" }
+        tebalkan: { $ref: "#/components/schemas/HurufTebalkan" }
+        feedback: { $ref: "#/components/schemas/HurufFeedback" }
+    HurufTebalkan:
+      type: object
+      properties:
+        grid: { type: integer, example: 300 }
+        lower_required: { type: boolean }
+        upper: { type: array, items: { $ref: "#/components/schemas/HurufStroke" } }
+        lower: { type: array, items: { $ref: "#/components/schemas/HurufStroke" } }
+    HurufFeedback:
+      type: object
+      properties:
+        success: { type: string, example: "Keren! Huruf A rapi!" }
+        retry: { type: string, example: "Belum pas, ayo lagi!" }
+        hint: { type: string }
+    HurufLetter:
+      type: object
+      description: Letter content as the app renders it, assets resolved to URLs.
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        upper: { type: string }
+        lower: { type: string }
+        kenali:
+          type: object
+          properties:
+            word: { type: string }
+            highlight: { type: array, items: { type: integer } }
+            image_url: { type: string }
+        dengar:
+          type: object
+          properties:
+            letter_audio_url: { type: string }
+            word_audio_url: { type: string }
+        tebalkan: { $ref: "#/components/schemas/HurufTebalkan" }
+        feedback: { $ref: "#/components/schemas/HurufFeedback" }
+    HurufManifest:
+      type: object
+      properties:
+        premium: { type: boolean }
+        letters:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              upper: { type: string }
+              lower: { type: string }
+              word: { type: string }
+              image_url: { type: string }
+              is_free: { type: boolean }
+              locked: { type: boolean }
+              version: { type: integer }
+        tracing_thresholds:
+          type: object
+          properties:
+            radius: { type: number, example: 22 }
+            coverage: { type: number, example: 0.8 }
+            accuracy: { type: number, example: 0.85 }
+            direction: { type: number, example: 0.7 }
+            start_tolerance: { type: number, example: 30 }
+            max_failures: { type: integer, example: 3 }
+    HurufProgress:
+      type: object
+      properties:
+        letter_id: { type: string, format: uuid }
+        kenali_done: { type: boolean }
+        dengar_done: { type: boolean }
+        tebalkan_done: { type: boolean }
+        best_score: { type: number, nullable: true, minimum: 0, maximum: 1 }
+        attempts: { type: integer }
+        updated_at: { type: string, format: date-time }
+    HurufProgressUpdate:
+      type: object
+      properties:
+        kenali_done: { type: boolean }
+        dengar_done: { type: boolean }
+        tebalkan_done: { type: boolean }
+        score: { type: number, minimum: 0, maximum: 1 }
+        attempt: { type: boolean, description: Count one tracing attempt }
+    HurufAdminLetter:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        upper: { type: string }
+        lower: { type: string }
+        sort_order: { type: integer }
+        is_free: { type: boolean }
+        status: { type: string, enum: [draft, published, hidden] }
+        has_unpublished_changes: { type: boolean }
+        version: { type: integer, nullable: true }
+        word: { type: string }
+        image_url: { type: string }
+        audio_count: { type: integer }
+        stroke_count: { type: integer }
+        updated_by: { type: string }
+        updated_at: { type: string, format: date-time }
+    Asset:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, audio] }
+        url: { type: string }
+        sha256: { type: string }
+        mime: { type: string }
+        bytes: { type: integer }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+        duration_ms: { type: integer, nullable: true }
+        original_name: { type: string }
+        created_at: { type: string, format: date-time }
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        admin_id: { type: string, format: uuid }
+        admin_email: { type: string }
+        action: { type: string, example: publish }
+        entity_type: { type: string, example: letter }
+        entity_id: { type: string }
+        before: { nullable: true }
+        after: { nullable: true }
+        created_at: { type: string, format: date-time }
+    AdminRole:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        role: { type: string, enum: [editor, publisher] }
     GrowthError:
       type: object
       properties:
@@ -2746,6 +2971,391 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/GrowthMeasurement" }
         "404": { $ref: "#/components/responses/GrowthNotFound" }
+  /learn/huruf/manifest:
+    get:
+      tags: [huruf]
+      summary: Published Belajar Huruf letters for the caller, with lock state and tracing thresholds
+      description: >-
+        Carries an ETag over the whole body (it changes on any publish, reorder,
+        hide, free-letter change, threshold change or the caller's premium
+        status). Send it back in If-None-Match for a 304.
+      operationId: getlearn_huruf_manifest
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: If-None-Match, in: header, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: The manifest
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/HurufManifest" }
+        "304": { description: Unchanged since the given ETag }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /learn/huruf/letters/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [huruf]
+      summary: Published content of one letter, with asset URLs
+      operationId: getlearn_huruf_letters_id
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: The letter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/HurufLetter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/PremiumRequired" }
+        "404": { $ref: "#/components/responses/HurufNotFound" }
+  /children/{childId}/huruf/progress:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [huruf]
+      summary: All letter progress of one of the caller's children
+      operationId: getchildren_childid_huruf_progress
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Progress rows, most recently updated first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/HurufProgress" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/HurufNotFound" }
+  /children/{childId}/huruf/progress/{letterId}:
+    parameters:
+      - { name: childId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: letterId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [huruf]
+      summary: Merge progress on a letter (flags are OR-merged, best score kept)
+      operationId: putchildren_childid_huruf_progress_letterid
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HurufProgressUpdate" }
+      responses:
+        "200":
+          description: The merged row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/HurufProgress" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/PremiumRequired" }
+        "404": { $ref: "#/components/responses/HurufNotFound" }
+        "422": { $ref: "#/components/responses/HurufInvalid" }
+  /media/huruf/{file}:
+    parameters:
+      - { name: file, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [huruf]
+      summary: Uploaded media file (local storage driver only; production serves media from the R2 custom domain)
+      operationId: getmedia_huruf_file
+      security: []
+      responses:
+        "200":
+          description: The file
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { description: No such file }
+  /admin/huruf/letters:
+    get:
+      tags: [admin]
+      summary: Every Belajar Huruf letter with status, version and draft summary
+      operationId: getadmin_huruf_letters
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Letters in display order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/HurufAdminLetter" } }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/draft:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: A letter's editable draft and the assets it references
+      operationId: getadmin_huruf_letters_id_draft
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/HurufDraft" }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+    put:
+      tags: [admin]
+      summary: Save the draft (optimistic concurrency on draft_rev; 409 DRAFT_CONFLICT when stale)
+      operationId: putadmin_huruf_letters_id_draft
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft, draft_rev]
+              properties:
+                draft: { $ref: "#/components/schemas/HurufContent" }
+                draft_rev: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/HurufDraft" }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/preview:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Resolve an unsaved draft the way the app renders it; saves nothing
+      operationId: postadmin_huruf_letters_id_preview
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HurufContent" }
+      responses:
+        "200":
+          description: The rendered letter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/HurufLetter" }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/versions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: Published versions, newest first
+      operationId: getadmin_huruf_letters_id_versions
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        version: { type: integer }
+                        published_by: { type: string }
+                        published_at: { type: string, format: date-time }
+                        is_current: { type: boolean }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/publish:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Validate and publish the draft as the next version (publisher role)
+      operationId: postadmin_huruf_letters_id_publish
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/HurufPublished" }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/rollback/{version}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: version, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [admin]
+      summary: Republish an old version's content as a new version, and reset the draft to it (publisher role)
+      operationId: postadmin_huruf_letters_id_rollback_version
+      security: [{ adminAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/HurufPublished" }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/hide:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Hide a letter from the app; progress is kept (publisher role)
+      operationId: postadmin_huruf_letters_id_hide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Hidden }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/unhide:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Show a hidden letter again (publisher role)
+      operationId: postadmin_huruf_letters_id_unhide
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Shown }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/set-free:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Make this the only free sample letter (publisher role)
+      operationId: postadmin_huruf_letters_id_set-free
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Set }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/letters/{id}/unset-free:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      summary: Make this letter premium again; no letter is free afterwards if it was the free one (publisher role)
+      operationId: postadmin_huruf_letters_id_unset-free
+      security: [{ adminAuth: [] }]
+      responses:
+        "204": { description: Unset }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/huruf/order:
+    put:
+      tags: [admin]
+      summary: Set the display order; must list every letter exactly once (publisher role)
+      operationId: putadmin_huruf_order
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        "204": { description: Reordered }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/assets:
+    post:
+      tags: [admin]
+      summary: Upload an image (PNG/WebP, square, ≤ 500 KB) or audio (MP3/AAC, ≤ 300 KB, ≤ 10 s)
+      description: The type is decided from the file's bytes. The same bytes uploaded again return the existing asset (200).
+      operationId: postadmin_assets
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, kind]
+              properties:
+                file: { type: string, format: binary }
+                kind: { type: string, enum: [image, audio] }
+      responses:
+        "201": { $ref: "#/components/responses/Asset" }
+        "200": { $ref: "#/components/responses/Asset" }
+        "422":
+          description: The file was refused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [INVALID_ASSET] }
+                  reason: { type: string, enum: [UNSUPPORTED_TYPE, TOO_LARGE, NOT_SQUARE, TOO_LONG, UNREADABLE] }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/audit-log:
+    get:
+      tags: [admin]
+      summary: Backoffice audit entries, newest first
+      operationId: getadmin_audit-log
+      security: [{ adminAuth: [] }]
+      parameters:
+        - { name: entity_type, in: query, required: false, schema: { type: string } }
+        - { name: entity_id, in: query, required: false, schema: { type: string } }
+        - { name: page, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: per_page, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+                  total: { type: integer }
+                  page: { type: integer }
+                  per_page: { type: integer }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/admins:
+    get:
+      tags: [admin]
+      summary: Backoffice admins and their content roles (any admin; changing a role needs publisher)
+      operationId: getadmin_admins
+      security: [{ adminAuth: [] }]
+      responses:
+        "200":
+          description: Admins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AdminRole" } }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
+  /admin/admins/{id}/role:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [admin]
+      summary: Change an admin's role; 409 LAST_PUBLISHER if none would remain (publisher role)
+      operationId: patchadmin_admins_id_role
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [editor, publisher] }
+      responses:
+        "200":
+          description: The admin
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AdminRole" }
+        "4XX": { $ref: "#/components/responses/HurufAdminError" }
   /health:
     get:
       tags: [misc]

@@ -35,6 +35,10 @@ func TestAccountDeletionService_DeleteAccount_Success(t *testing.T) {
 		WithArgs(childID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "letter_progress" WHERE child_id IN ($1)`)).
+		WithArgs(childID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "children" WHERE parent_id = $1`)).
 		WithArgs(userID.String()).
 		WillReturnResult(sqlmock.NewResult(0, 1))

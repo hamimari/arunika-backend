@@ -124,3 +124,46 @@ INSERT INTO user_subscriptions (user_id, status, expires_at, package_id, start_d
 VALUES ('e2e00000-0000-0000-0000-000000000003', 'premium', NOW() + INTERVAL '30 days',
         'e2e0b000-0000-0000-0000-000000000002', NOW())
 ON CONFLICT (user_id) DO NOTHING;
+
+-- ── Belajar Huruf: letter A published (free), the rest drafts ─────────────────
+--
+-- The asset files are committed under db/seeds/test/media/huruf and mounted
+-- into the app container as its local media directory
+-- (docker-compose.test.yml), so the URLs below really serve.
+
+INSERT INTO content_assets (id, kind, storage_key, sha256, bytes, mime, width, height, duration_ms, original_name, created_by)
+SELECT v.id::uuid, v.kind, v.key, v.sha, v.bytes, v.mime, v.w, v.h, v.ms, v.name, a.id
+FROM (VALUES
+  ('e2e0f000-0000-0000-0000-000000000001', 'image', 'huruf/e2e-apel.webp', 'e2e-apel-webp', 590,   'image/webp', 512,  512,  NULL, 'apel.webp'),
+  ('e2e0f000-0000-0000-0000-000000000002', 'audio', 'huruf/e2e-a.mp3',     'e2e-a-mp3',     16680, 'audio/mpeg', NULL, NULL, 1044, 'a.mp3'),
+  ('e2e0f000-0000-0000-0000-000000000003', 'audio', 'huruf/e2e-apel.mp3',  'e2e-apel-mp3',  29190, 'audio/mpeg', NULL, NULL, 1828, 'apel.mp3')
+) AS v(id, kind, key, sha, bytes, mime, w, h, ms, name)
+CROSS JOIN (SELECT id FROM admin_users WHERE email = 'admin@arunika.id') a
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE letters SET draft = jsonb_build_object(
+    'upper', 'A', 'lower', 'a',
+    'kenali', jsonb_build_object('word', 'Apel', 'highlight', '[0]'::jsonb,
+                                 'image_asset_id', 'e2e0f000-0000-0000-0000-000000000001'),
+    'dengar', jsonb_build_object('letter_audio_id', 'e2e0f000-0000-0000-0000-000000000002',
+                                 'word_audio_id', 'e2e0f000-0000-0000-0000-000000000003'),
+    'tebalkan', jsonb_build_object('grid', 300, 'lower_required', false,
+        'upper', '[{"order":1,"label":"Garis miring kiri","path":"M150 30 L70 260"},
+                   {"order":2,"label":"Garis miring kanan","path":"M150 30 L230 260"},
+                   {"order":3,"label":"Garis tengah","path":"M99 170 L201 170"}]'::jsonb,
+        'lower', '[]'::jsonb),
+    'feedback', jsonb_build_object('success', 'Keren! Huruf A rapi!', 'retry', 'Belum pas, ayo lagi!',
+        'hint', 'Mulai dari angka 1, lalu ikuti titik-titik sampai ujung.'))
+WHERE upper = 'A' AND published_version_id IS NULL;
+
+INSERT INTO letter_versions (id, letter_id, version, content, published_by)
+SELECT 'e2e0f100-0000-0000-0000-000000000001', l.id, 1, l.draft, a.id
+FROM letters l CROSS JOIN (SELECT id FROM admin_users WHERE email = 'admin@arunika.id') a
+WHERE l.upper = 'A'
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE letters SET published_version_id = 'e2e0f100-0000-0000-0000-000000000001', status = 'published'
+WHERE upper = 'A' AND published_version_id IS NULL;
+
+-- The app's Huruf flows need the module on.
+UPDATE app_feature_flags SET is_enabled = true WHERE key = 'belajar_huruf';

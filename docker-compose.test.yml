@@ -78,6 +78,10 @@ services:
     # GitHub Actions runners) too.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Huruf media (local storage driver): the committed e2e-* fixtures the
+    # test seed references, plus anything uploaded during a run.
+    volumes:
+      - ./db/seeds/test/media:/media-e2e
 
   backoffice:
     container_name: arunika_e2e_backoffice

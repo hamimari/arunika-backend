@@ -203,6 +203,47 @@ func TestGrowth_OwnerCanReadCreateEditDeleteAndRestore(t *testing.T) {
 
 var routeParam = regexp.MustCompile(`:[A-Za-z_]+`)
 
+// Huruf progress hangs off a child too: a foreign child must look exactly
+// like a missing one, for reads and writes.
+
+// publishFreeLetter publishes the seeded free letter A straight in the DB.
+func publishFreeLetter(t *testing.T, env *Env) string {
+	t.Helper()
+	admin := models.AdminUser{Email: "huruf-" + uuid.NewString() + "@example.test", PasswordHash: "x"}
+	require.NoError(t, env.DB.Create(&admin).Error)
+	var letter models.Letter
+	require.NoError(t, env.DB.Where("upper = 'A'").First(&letter).Error)
+	v := models.LetterVersion{LetterID: letter.ID, Version: 1, Content: letter.Draft, PublishedBy: admin.ID}
+	require.NoError(t, env.DB.Create(&v).Error)
+	require.NoError(t, env.DB.Model(&letter).Updates(map[string]interface{}{
+		"published_version_id": v.ID, "status": "published",
+	}).Error)
+	return letter.ID.String()
+}
+
+func TestHorizontal_HurufProgressOfAnotherUsersChild_CannotBeReadOrWritten(t *testing.T) {
+	t.Parallel()
+	env := NewEnv(t)
+	a, b := env.Register(t), env.Register(t)
+	letter := publishFreeLetter(t, env)
+	child := env.ChildID(t, b).String()
+
+	own := env.PUT("/children/"+child+"/huruf/progress/"+letter, b.Token, map[string]interface{}{"kenali_done": true})
+	require.Equal(t, http.StatusOK, own.Code, "sanity: the parent can record progress: %s", string(own.Body))
+
+	read := env.GET("/children/"+child+"/huruf/progress", a.Token)
+	assert.Equal(t, http.StatusNotFound, read.Code)
+	assert.NotContains(t, string(read.Body), letter)
+	unknown := env.GET("/children/"+uuid.NewString()+"/huruf/progress", a.Token)
+	assert.JSONEq(t, string(read.Body), string(unknown.Body), "a foreign child and a nonexistent one must be indistinguishable")
+
+	write := env.PUT("/children/"+child+"/huruf/progress/"+letter, a.Token, map[string]interface{}{"dengar_done": true})
+	assert.Equal(t, http.StatusNotFound, write.Code)
+	var row models.LetterProgress
+	require.NoError(t, env.DB.Where("child_id = ?", child).First(&row).Error)
+	assert.False(t, row.DengarDone, "the foreign write changed nothing")
+}
+
 // Iterating the live route table means a newly added /admin route is covered
 // the day it is registered, with no test to remember to write.
 func TestVertical_EveryAdminRoute_RejectsAnOrdinaryUser(t *testing.T) {

@@ -193,7 +193,7 @@ func computeSubscriptionExpiry(now time.Time, currentExpiry *time.Time, duration
 // first confirm the content item actually has a linked product — content
 // with no linked product is free and should never reach this check.
 func (s *EntitlementService) HasAccess(userID uuid.UUID, productID uuid.UUID) (bool, error) {
-	hasSub, err := s.hasActiveSubscription(userID)
+	hasSub, err := s.HasActiveSubscription(userID)
 	if err != nil {
 		return false, err
 	}
@@ -203,7 +203,9 @@ func (s *EntitlementService) HasAccess(userID uuid.UUID, productID uuid.UUID) (b
 	return models.HasEntitlement(s.db, userID, productID)
 }
 
-func (s *EntitlementService) hasActiveSubscription(userID uuid.UUID) (bool, error) {
+// HasActiveSubscription reports whether userID has an active Akses Premium
+// subscription. Content-only purchases don't count.
+func (s *EntitlementService) HasActiveSubscription(userID uuid.UUID) (bool, error) {
 	var sub models.UserSubscription
 	err := s.db.Where("user_id = ?", userID).First(&sub).Error
 	if err != nil {

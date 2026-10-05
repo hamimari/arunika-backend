@@ -168,6 +168,11 @@ func writeEnvFile(t *testing.T, root string, play *fixtures.FakePlay) {
 		"GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=" + play.ServiceAccountJSON,
 		"ANDROID_PUBLISHER_BASE_URL=" + play.AdvertisedURL,
 		"ANDROID_PACKAGE_NAME=com.arunika",
+		// Uploaded and seeded Huruf media: docker-compose.test.yml mounts
+		// db/seeds/test/media here, and the API serves it under /media.
+		"MEDIA_DRIVER=local",
+		"MEDIA_LOCAL_DIR=/media-e2e",
+		"MEDIA_PUBLIC_BASE_URL=http://localhost:8090/media/",
 	}
 	require.NoError(t, os.WriteFile(path, []byte(joinLines(lines)), 0o600))
 }

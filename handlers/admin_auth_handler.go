@@ -31,10 +31,12 @@ func (h *AdminAuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
+	role, _ := h.svc.Role(adminID)
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"admin_id":      adminID,
+		"role":          role,
 	})
 }
 
@@ -53,7 +55,8 @@ func (h *AdminAuthHandler) Refresh(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"access_token": accessToken})
+	role, _ := h.svc.Role(req.AdminID)
+	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "role": role})
 }
 
 // POST /admin/auth/logout
