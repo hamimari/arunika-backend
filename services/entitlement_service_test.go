@@ -119,6 +119,12 @@ func TestEntitlementService_GrantForPaidOrder_SubscriptionPackage_NewSubscriptio
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uuid.New()))
 	mock.ExpectCommit()
 
+	// Subscribing clears the cart.
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "cart_items" WHERE user_id = $1`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
 	err := svc.GrantForPaidOrder(gormDB, order)
 
 	require.NoError(t, err)
@@ -178,6 +184,12 @@ func TestEntitlementService_GrantForPaidOrder_SubscriptionPackage_ExtendsActiveS
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "user_subscriptions" SET`)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	// Subscribing clears the cart.
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "cart_items" WHERE user_id = $1`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	err := svc.GrantForPaidOrder(gormDB, order)

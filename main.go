@@ -45,6 +45,7 @@ func main() {
 	r := routes.SetupRouter(svcRegistry, rdb, db)
 
 	startPlayPurchaseReconciliation(svcRegistry.PaymentService)
+	startCartSettlement(svcRegistry.PaymentService)
 	startGrowthPurge(svcRegistry.GrowthService)
 
 	port := os.Getenv("PORT")
@@ -141,6 +142,30 @@ func startPlayPurchaseReconciliation(ps *services.PaymentService) {
 			}
 			if count > 0 {
 				slog.Info("play purchase reconciliation completed", "reconciled", count)
+			}
+		}
+	}()
+}
+
+// startCartSettlement runs the cart worker every minute: it retries the
+// grant of paid cart orders, retries consuming granted purchases and
+// alerts on orders paid but not granted for 10 minutes. See
+// services.PaymentService.RunCartSettlement.
+func startCartSettlement(ps *services.PaymentService) {
+	if os.Getenv("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON") == "" {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			ps.RunCartSettlement(ctx)
+			cancel()
+			if n, err := ps.ExpireCartOrders(); err != nil {
+				slog.Error("expire cart orders failed", "error", err)
+			} else if n > 0 {
+				slog.Info("expired unpaid cart orders", "count", n)
 			}
 		}
 	}()

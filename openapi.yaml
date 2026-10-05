@@ -734,6 +734,113 @@ components:
           format: int64
           description: Gross value of the group in whole rupiah.
 paths:
+  /cart:
+    get:
+      tags: [cart]
+      summary: Get the cart at current prices
+      description: >-
+        Items with current price, strike price, price_changed_from and unavailable;
+        totals; notices for items removed because they became owned, free or
+        covered by Akses Premium.
+      operationId: getcart
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [cart]
+      summary: Empty the cart (Hapus semua)
+      operationId: deletecart
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /cart/items:
+    post:
+      tags: [cart]
+      summary: Add an item to the cart
+      description: >-
+        Idempotent. 409 ALREADY_OWNED, NOT_FOR_SALE, FREE_ITEM, SUBSCRIPTION_ACTIVE,
+        CART_FULL (20 items) or CART_TOTAL_LIMIT (Rp 500.000). 403 CART_DISABLED
+        while the cart feature flag is off.
+      operationId: postcart_items
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                product_id: { type: string, format: uuid }
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /cart/items/{product_id}:
+    parameters:
+      - name: product_id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [cart]
+      summary: Remove an item from the cart
+      operationId: deletecart_items_product_id
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /entitlements:
+    get:
+      tags: [cart]
+      summary: List owned single items
+      description: >-
+        Active product ids owned by the account; backs Pulihkan pembelian.
+      operationId: getentitlements
+      security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /admin/analytics/dau:
     get:
       tags: [admin]
@@ -2269,6 +2376,47 @@ paths:
       tags: [admin]
       summary: Get admin orders
       operationId: getadmin_orders
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/orders/{id}/regrant:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [admin]
+      summary: Retry the grant of a paid order (Berikan ulang)
+      description: >-
+        Uses the purchase token on file; written to the admin audit log.
+      operationId: postadmin_orders_id_regrant
+      security: [{ adminAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /admin/store-products:
+    get:
+      tags: [admin]
+      summary: List cart store products and missing totals
+      operationId: getadmin_store_products
       security: [{ adminAuth: [] }]
       responses:
         "2XX":
@@ -4307,11 +4455,76 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
   /orders:
+    post:
+      tags: [cart]
+      summary: Check out the cart (or the given items) into an order
+      description: >-
+        Body {store: google} freezes the cart; {store, items:[{product_id}]} is a
+        single Beli. Optional Idempotency-Key header. Returns order_id,
+        play_product_id, totals and price_locked_until (30 minutes). 409
+        CART_CHANGED with the new cart in data when the parent must look again;
+        409 AMOUNT_UNAVAILABLE, CART_FULL, CART_TOTAL_LIMIT, CART_EMPTY,
+        SUBSCRIPTION_ACTIVE. Rate limited to 10 per minute.
+      operationId: postorders
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                store: { type: string, enum: [google] }
+                items: { type: array, items: { type: object, properties: { product_id: { type: string } } } }
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
     get:
       tags: [payments]
       summary: Get orders
       operationId: getorders
       security: [{ bearerAuth: [] }]
+      responses:
+        "2XX":
+          description: Success
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /orders/{id}/verify:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [cart]
+      summary: Verify the Google Play purchase of a cart order
+      description: >-
+        Settles the order and grants every item. data.phase is diberikan when
+        granted and diproses while Google is still taking the payment.
+      operationId: postorders_id_verify
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                purchase_token: { type: string }
       responses:
         "2XX":
           description: Success

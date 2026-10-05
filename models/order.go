@@ -43,9 +43,21 @@ type Order struct {
 	// Google succeeds) so a later admin-triggered re-sync never needs it
 	// typed in by hand. Nil for Midtrans orders. Never serialized directly
 	// — see AdminOrderView.HasPurchaseToken.
-	PurchaseToken *string   `gorm:"column:purchase_token" json:"-"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	PurchaseToken *string `gorm:"column:purchase_token" json:"-"`
+	// Cart orders (IsCart) hold their items in order_items and are paid
+	// with the consumable store product for their total (StoreProductID).
+	IsCart           bool       `gorm:"column:is_cart;not null;default:false" json:"is_cart"`
+	SubtotalIdr      *int64     `gorm:"column:subtotal_idr"                   json:"subtotal_idr,omitempty"`
+	ChargeIdr        *int64     `gorm:"column:charge_idr"                     json:"charge_idr,omitempty"`
+	PriceLockedUntil *time.Time `gorm:"column:price_locked_until"             json:"price_locked_until,omitempty"`
+	StoreProductID   *uuid.UUID `gorm:"column:store_product_id;type:uuid"     json:"-"`
+	IdempotencyKey   *string    `gorm:"column:idempotency_key"                json:"-"`
+	// GrantedAt is set in the same transaction that grants the order's
+	// entitlements; ConsumedAt once the Play purchase has been consumed.
+	GrantedAt  *time.Time `gorm:"column:granted_at"  json:"granted_at,omitempty"`
+	ConsumedAt *time.Time `gorm:"column:consumed_at" json:"-"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 func (Order) TableName() string { return "orders" }

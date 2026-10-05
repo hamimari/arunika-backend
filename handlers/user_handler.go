@@ -34,6 +34,17 @@ type UserHandler struct {
 	deletionService *services.AccountDeletionService
 	authService     *services.AuthService
 	consentService  *services.ConsentService
+	cartService     *services.CartService
+}
+
+// WithCart reports cart_enabled on the profile.
+func (h *UserHandler) WithCart(cs *services.CartService) *UserHandler {
+	h.cartService = cs
+	return h
+}
+
+func (h *UserHandler) cartEnabled(subscriptionStatus string) bool {
+	return h.cartService != nil && subscriptionStatus != "premium" && h.cartService.Enabled()
 }
 
 // userResponse nests is_subscribed and subscription alongside the Parent
@@ -47,6 +58,9 @@ type userResponse struct {
 	// ConsentRequired is true when the user has not accepted the current
 	// version of every legal document; the app blocks on a consent screen.
 	ConsentRequired bool `json:"consent_required"`
+	// CartEnabled is false while the cart flag is off or Akses Premium is
+	// active (subscribers own everything the cart sells).
+	CartEnabled bool `json:"cart_enabled"`
 }
 
 // WithConsent enables the consent_required flag on the profile and the
@@ -169,6 +183,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 			IsSubscribed:    subscriptionStatus == "premium",
 			Subscription:    subscription,
 			ConsentRequired: consentRequired,
+			CartEnabled:     h.cartEnabled(subscriptionStatus),
 		},
 		"subscription_status": subscriptionStatus,
 	})
@@ -233,6 +248,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			Parent:       user,
 			IsSubscribed: subscriptionStatus == "premium",
 			Subscription: subscription,
+			CartEnabled:  h.cartEnabled(subscriptionStatus),
 		},
 		"subscription_status": subscriptionStatus,
 	})

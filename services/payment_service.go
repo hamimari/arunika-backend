@@ -613,7 +613,7 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 		if order.Status != models.OrderStatusPending {
 			return fmt.Errorf("order is not pending (status=%s)", order.Status)
 		}
-		if order.PackageID == nil && order.ProductID == nil {
+		if order.PackageID == nil && order.ProductID == nil && !order.IsCart {
 			return fmt.Errorf("order has neither package nor product")
 		}
 
@@ -629,7 +629,13 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 		var isSubscription bool
 		var autoRenew bool
 
-		if order.PackageID != nil {
+		if order.IsCart {
+			sku, pID, err := s.verifyCartPurchase(ctx, tx, &order, purchaseToken)
+			if err != nil {
+				return err
+			}
+			providerOrderID, playProductID = pID, sku
+		} else if order.PackageID != nil {
 			pkg, err := models.FindPremiumPackageByID(tx, order.PackageID.String())
 			if err != nil {
 				return fmt.Errorf("load package: %w", err)
@@ -681,10 +687,14 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 			return fmt.Errorf("save payment: %w", err)
 		}
 
-		if err := tx.Model(&order).Update("status", models.OrderStatusPaid).Error; err != nil {
+		grantedAt := time.Now()
+		if err := tx.Model(&order).Updates(map[string]interface{}{
+			"status": models.OrderStatusPaid, "granted_at": grantedAt,
+		}).Error; err != nil {
 			return fmt.Errorf("update order status: %w", err)
 		}
 		order.Status = models.OrderStatusPaid
+		order.GrantedAt = &grantedAt
 		result = order
 
 		if err := s.entitlementService.GrantForPaidOrder(tx, &order); err != nil {
@@ -700,7 +710,70 @@ func (s *PaymentService) VerifyPlayPurchase(ctx context.Context, orderID, userID
 	if err != nil {
 		return nil, err
 	}
+	if result.IsCart && result.Status == models.OrderStatusPaid && result.ConsumedAt == nil {
+		s.consumeCartOrder(ctx, &result, purchaseToken)
+	}
 	return &result, nil
+}
+
+// ErrPlayPurchasePending means Google has not finished taking the payment
+// (cash or another delayed method); the order stays PENDING with its token
+// on file and is settled by the RTDN or the retry worker.
+var ErrPlayPurchasePending = fmt.Errorf("purchase is pending")
+
+// ErrPlayPurchaseMismatch means the purchase does not belong to the order
+// it was sent for (another product, or another order's id).
+var ErrPlayPurchaseMismatch = fmt.Errorf("purchase does not match the order")
+
+// verifyCartPurchase checks a purchase against a cart order: the product
+// must be the order's store product and the purchase must carry the order
+// id, so a cheaper purchase can't unlock a bigger order.
+func (s *PaymentService) verifyCartPurchase(ctx context.Context, tx *gorm.DB, order *models.Order, purchaseToken string) (sku, providerOrderID string, err error) {
+	if order.StoreProductID == nil {
+		return "", "", fmt.Errorf("cart order has no store product")
+	}
+	var sp models.StoreProduct
+	if err := tx.Where("id = ?", *order.StoreProductID).First(&sp).Error; err != nil {
+		return "", "", fmt.Errorf("load store product: %w", err)
+	}
+	purchase, err := s.playVerifier.VerifyProductPurchase(ctx, sp.PlayProductID, purchaseToken)
+	if err != nil {
+		return "", "", fmt.Errorf("verify with google play: %w", err)
+	}
+	if purchase.ObfuscatedExternalAccountID != order.ID.String() {
+		return "", "", ErrPlayPurchaseMismatch
+	}
+	if purchase.ProductID != "" && purchase.ProductID != sp.PlayProductID {
+		return "", "", ErrPlayPurchaseMismatch
+	}
+	switch purchase.PurchaseState {
+	case PlayPurchaseStatePurchased:
+		return sp.PlayProductID, purchase.OrderID, nil
+	case PlayPurchaseStatePending:
+		return "", "", ErrPlayPurchasePending
+	default:
+		return "", "", ErrPlayPurchaseNotValid
+	}
+}
+
+// consumeCartOrder consumes the Play purchase of a granted cart order so
+// the same total can be bought again. A failure is left for the retry
+// worker (the grant has already happened).
+func (s *PaymentService) consumeCartOrder(ctx context.Context, order *models.Order, purchaseToken string) {
+	var sp models.StoreProduct
+	if order.StoreProductID == nil || s.db.Where("id = ?", *order.StoreProductID).First(&sp).Error != nil {
+		return
+	}
+	if err := s.playVerifier.ConsumeProductPurchase(ctx, sp.PlayProductID, purchaseToken); err != nil {
+		slog.Warn("consume cart purchase failed; will retry", "order_id", order.ID, "error", err)
+		return
+	}
+	now := time.Now()
+	if err := s.db.Model(&models.Order{}).Where("id = ?", order.ID).Update("consumed_at", now).Error; err != nil {
+		slog.Warn("record consumed_at failed", "order_id", order.ID, "error", err)
+		return
+	}
+	order.ConsumedAt = &now
 }
 
 // playSKUTarget resolves a Google Play SKU to what it sells — a package
@@ -723,8 +796,9 @@ func (s *PaymentService) playSKUTarget(playProductID string) (column string, id 
 // ── Google Play Real-time Developer Notifications ───────────────────────────
 
 type playDeveloperNotification struct {
-	PackageName              string                        `json:"packageName"`
-	SubscriptionNotification *playSubscriptionNotification `json:"subscriptionNotification"`
+	PackageName                string                          `json:"packageName"`
+	SubscriptionNotification   *playSubscriptionNotification   `json:"subscriptionNotification"`
+	OneTimeProductNotification *playOneTimeProductNotification `json:"oneTimeProductNotification"`
 }
 
 type playSubscriptionNotification struct {
@@ -755,6 +829,9 @@ func (s *PaymentService) HandlePlayRTDN(ctx context.Context, raw []byte) error {
 	var notif playDeveloperNotification
 	if err := json.Unmarshal(raw, &notif); err != nil {
 		return fmt.Errorf("decode notification: %w", err)
+	}
+	if notif.OneTimeProductNotification != nil {
+		return s.handleOneTimeRTDN(ctx, notif.OneTimeProductNotification)
 	}
 	sub := notif.SubscriptionNotification
 	if sub == nil || sub.PurchaseToken == "" {

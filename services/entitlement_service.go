@@ -95,9 +95,32 @@ func (s *EntitlementService) GrantForPaidOrder(tx *gorm.DB, order *models.Order)
 		return s.grantForPackage(tx, order)
 	case order.ProductID != nil:
 		return models.GrantEntitlement(tx, order.UserID, *order.ProductID, &order.ID)
+	case order.IsCart:
+		return s.grantForCart(tx, order)
 	default:
 		return errors.New("order has neither product_id nor package_id")
 	}
+}
+
+// grantForCart grants every item of a cart order and takes exactly those
+// items out of the parent's cart; anything else in the cart stays.
+func (s *EntitlementService) grantForCart(tx *gorm.DB, order *models.Order) error {
+	var items []models.OrderItem
+	if err := tx.Where("order_id = ?", order.ID).Find(&items).Error; err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return errors.New("cart order has no items")
+	}
+	productIDs := make([]uuid.UUID, len(items))
+	for i, item := range items {
+		if err := models.GrantOrRestoreEntitlement(tx, order.UserID, item.ProductID, order.ID); err != nil {
+			return err
+		}
+		productIDs[i] = item.ProductID
+	}
+	return tx.Where("user_id = ? AND product_id IN ?", order.UserID, productIDs).
+		Delete(&models.CartItem{}).Error
 }
 
 func (s *EntitlementService) grantForPackage(tx *gorm.DB, order *models.Order) error {
@@ -122,7 +145,12 @@ func (s *EntitlementService) grantForPackage(tx *gorm.DB, order *models.Order) e
 		if pkg.DurationDays == nil {
 			return errors.New("subscription package missing duration_days")
 		}
-		return s.upsertSubscription(tx, order.UserID, *order.PackageID, *pkg.DurationDays, orderProvider(order))
+		if err := s.upsertSubscription(tx, order.UserID, *order.PackageID, *pkg.DurationDays, orderProvider(order)); err != nil {
+			return err
+		}
+		// Akses Premium covers every Kartu AR and Dongeng, so nothing left
+		// in the cart needs buying any more.
+		return tx.Where("user_id = ?", order.UserID).Delete(&models.CartItem{}).Error
 	default:
 		return errors.New("unknown package type: " + pkg.Type)
 	}

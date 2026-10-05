@@ -3,6 +3,7 @@ package services
 import (
 	"arunika_backend/models"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,21 +50,97 @@ type AdminOrderView struct {
 	HasPurchaseToken bool `json:"has_purchase_token"`
 	// RefundCount is how many refund records (any status) the order has —
 	// the backoffice shows a "Refunds" view when it is non-zero.
-	RefundCount int64     `json:"refund_count"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	RefundCount int64 `json:"refund_count"`
+	// Cart orders list their items; Phase is the PRD's order state
+	// (menunggu, diproses, diberikan, gagal, kedaluwarsa, dikembalikan).
+	IsCart    bool               `json:"is_cart"`
+	Phase     string             `json:"phase"`
+	Items     []models.OrderItem `json:"items,omitempty"`
+	GrantedAt *time.Time         `json:"granted_at,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// orderItemsByOrder batch-loads the items of the cart orders among orders.
+func (s *OrderService) orderItemsByOrder(orders []models.Order) (map[uuid.UUID][]models.OrderItem, error) {
+	out := map[uuid.UUID][]models.OrderItem{}
+	var ids []uuid.UUID
+	for _, o := range orders {
+		if o.IsCart {
+			ids = append(ids, o.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var items []models.OrderItem
+	if err := s.db.Where("order_id IN ?", ids).Order("title").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, it := range items {
+		out[it.OrderID] = append(out[it.OrderID], it)
+	}
+	return out, nil
+}
+
+// CartOrderStatus is GET /orders/:id for a cart order: the order, its
+// phase and its items.
+type CartOrderStatus struct {
+	models.Order
+	Phase string             `json:"phase"`
+	Items []models.OrderItem `json:"items"`
+}
+
+func (s *OrderService) CartStatus(order *models.Order) (*CartOrderStatus, error) {
+	items, err := s.orderItemsByOrder([]models.Order{*order})
+	if err != nil {
+		return nil, err
+	}
+	return &CartOrderStatus{Order: *order, Phase: OrderPhase(order), Items: items[order.ID]}, nil
 }
 
 // List returns a paginated, optionally status-filtered and searched list of
 // orders (admin use). search matches against the buyer's name, email, phone
 // number, user id, or the order id itself.
 func (s *OrderService) List(status, search string, page, perPage int) ([]AdminOrderView, int64, error) {
+	return s.ListFiltered(OrderListFilter{Status: status, Search: search}, page, perPage)
+}
+
+// OrderStatusProcessing is a list filter, not a stored status: PENDING
+// orders whose store purchase is on file but not yet granted ("dibayar").
+const OrderStatusProcessing = "PROCESSING"
+
+// OrderListFilter narrows the admin order list.
+type OrderListFilter struct {
+	Status string
+	Search string
+	// CartOnly keeps only cart orders.
+	CartOnly bool
+	From, To *time.Time
+}
+
+// ListFiltered is List with the cart, processing and date filters.
+func (s *OrderService) ListFiltered(f OrderListFilter, page, perPage int) ([]AdminOrderView, int64, error) {
 	var items []models.Order
 	var total int64
+	status, search := f.Status, f.Search
 
 	q := s.db.Model(&models.Order{})
-	if status != "" {
+	switch status {
+	case "":
+	case OrderStatusProcessing:
+		q = q.Where("orders.status = ? AND orders.purchase_token IS NOT NULL", models.OrderStatusPending)
+	default:
 		q = q.Where("status = ?", status)
+	}
+	if f.CartOnly {
+		q = q.Where("orders.is_cart")
+	}
+	if f.From != nil {
+		q = q.Where("orders.created_at >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("orders.created_at < ?", *f.To)
 	}
 	if search != "" {
 		like := "%" + search + "%"
@@ -138,6 +215,11 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 		refundCountByOrder[rc.OrderID] = rc.Count
 	}
 
+	itemsByOrder, err := s.orderItemsByOrder(orders)
+	if err != nil {
+		return nil, err
+	}
+
 	packageNameByID := make(map[string]string)
 	packageTypeByID := make(map[string]string)
 	if len(packageIDs) > 0 {
@@ -162,6 +244,10 @@ func (s *OrderService) enrichOrders(orders []models.Order) ([]AdminOrderView, er
 			Provider:         o.Provider,
 			HasPurchaseToken: o.PurchaseToken != nil && *o.PurchaseToken != "",
 			RefundCount:      refundCountByOrder[o.ID],
+			IsCart:           o.IsCart,
+			Phase:            OrderPhase(&o),
+			Items:            itemsByOrder[o.ID],
+			GrantedAt:        o.GrantedAt,
 			CreatedAt:        o.CreatedAt,
 			UpdatedAt:        o.UpdatedAt,
 		}
@@ -242,6 +328,7 @@ const (
 	OrderItemArCard  = "AR_CARD"
 	OrderItemDongeng = "DONGENG"
 	OrderItemPackage = "PACKAGE"
+	OrderItemCart    = "CART"
 )
 
 // UserOrderView is one row of a user's own payment history: an order plus
@@ -255,8 +342,10 @@ type UserOrderView struct {
 	Status        string    `json:"status"`
 	PaymentType   string    `json:"payment_type"`   // raw Midtrans payment_type, "" until the user picks a method
 	PaymentMethod string    `json:"payment_method"` // human-readable label for PaymentType
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// Items lists what a CART order bought.
+	Items     []models.OrderItem `json:"items,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
 }
 
 // ListOrdersForUser returns one page of userID's orders (every status),
@@ -337,6 +426,11 @@ func (s *OrderService) EnrichForUser(orders []models.Order) ([]UserOrderView, er
 		}
 	}
 
+	itemsByOrder, err := s.orderItemsByOrder(orders)
+	if err != nil {
+		return nil, err
+	}
+
 	// Every payment row that recorded a method, newest first. The initial
 	// row written at checkout has an empty payment_type, so it's skipped.
 	var payments []models.Payment
@@ -371,6 +465,10 @@ func (s *OrderService) EnrichForUser(orders []models.Order) ([]UserOrderView, er
 			UpdatedAt: o.UpdatedAt,
 		}
 		switch {
+		case o.IsCart:
+			view.ItemType = OrderItemCart
+			view.Items = itemsByOrder[o.ID]
+			view.ItemName = cartOrderName(view.Items)
 		case o.PackageID != nil:
 			view.ItemType = OrderItemPackage
 			if pkg, ok := packageByID[o.PackageID.String()]; ok {
@@ -393,4 +491,17 @@ func (s *OrderService) EnrichForUser(orders []models.Order) ([]UserOrderView, er
 		views[i] = view
 	}
 	return views, nil
+}
+
+// cartOrderName is the payment-history label of a cart order:
+// "Frog" for one item, "Frog + 2 item lain" for more.
+func cartOrderName(items []models.OrderItem) string {
+	switch len(items) {
+	case 0:
+		return "Keranjang"
+	case 1:
+		return items[0].Title
+	default:
+		return fmt.Sprintf("%s + %d item lain", items[0].Title, len(items)-1)
+	}
 }

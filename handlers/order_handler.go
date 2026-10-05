@@ -54,6 +54,15 @@ func (h *OrderHandler) GetByID(c *gin.Context) {
 	// Still-PENDING orders get an active Midtrans status check so a
 	// delayed/dropped webhook doesn't strand the client's poll — see
 	// PaymentService.SyncOrderStatus.
+	if order.IsCart {
+		status, err := h.service.CartStatus(order)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve order"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": status})
+		return
+	}
 	order = h.paymentService.SyncOrderStatus(order)
 	c.JSON(http.StatusOK, gin.H{"data": order})
 }

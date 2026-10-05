@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,12 @@ const (
 type PlayProductPurchase struct {
 	PurchaseState PlayPurchaseState `json:"purchaseState"`
 	OrderID       string            `json:"orderId"`
+	// ObfuscatedExternalAccountID is what the app passed as
+	// applicationUserName; cart purchases carry their order id in it.
+	ObfuscatedExternalAccountID string `json:"obfuscatedExternalAccountId"`
+	ProductID                   string `json:"productId"`
+	// ConsumptionState is 0 (yet to be consumed) or 1 (consumed).
+	ConsumptionState int `json:"consumptionState"`
 }
 
 // PlaySubscriptionPurchase mirrors the fields needed from
@@ -134,6 +141,7 @@ type playPurchaseVerifier interface {
 	RefundOrder(ctx context.Context, playOrderID string, revoke bool) error
 	RevokeSubscriptionPurchase(ctx context.Context, purchaseToken string, prorated bool) error
 	GetOrder(ctx context.Context, playOrderID string) (*PlayOrder, error)
+	ConsumeProductPurchase(ctx context.Context, productID, purchaseToken string) error
 }
 
 // PlayMoney mirrors google.type.Money as the Orders API returns it.
@@ -345,6 +353,66 @@ func (v *GooglePlayVerifier) VerifyProductPurchase(ctx context.Context, productI
 		return nil, err
 	}
 	return &out, nil
+}
+
+// playInAppProduct is the body of inappproducts.insert for a managed
+// (consumable) one-time product priced in IDR.
+type playInAppProduct struct {
+	PackageName     string                      `json:"packageName"`
+	SKU             string                      `json:"sku"`
+	Status          string                      `json:"status"`
+	PurchaseType    string                      `json:"purchaseType"`
+	DefaultPrice    PlayMicros                  `json:"defaultPrice"`
+	DefaultLanguage string                      `json:"defaultLanguage"`
+	Listings        map[string]playInAppListing `json:"listings"`
+}
+
+type PlayMicros struct {
+	PriceMicros string `json:"priceMicros"`
+	Currency    string `json:"currency"`
+}
+
+type playInAppListing struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+// ErrPlayProductExists is returned by CreateCartProduct when Google already
+// has a product with that SKU.
+var ErrPlayProductExists = fmt.Errorf("play product already exists")
+
+// CreateCartProduct creates the consumable "cart total" product sku priced
+// at priceIdr, with prices for other countries converted by Google.
+func (v *GooglePlayVerifier) CreateCartProduct(ctx context.Context, sku string, priceIdr int64) error {
+	body := playInAppProduct{
+		PackageName:     androidPackageName(),
+		SKU:             sku,
+		Status:          "active",
+		PurchaseType:    "managedUser",
+		DefaultPrice:    PlayMicros{PriceMicros: fmt.Sprintf("%d", priceIdr*1_000_000), Currency: "IDR"},
+		DefaultLanguage: "id-ID",
+		Listings: map[string]playInAppListing{
+			"id-ID": {
+				Title:       fmt.Sprintf("Keranjang arunika Rp %d", priceIdr),
+				Description: "Pembayaran sekali untuk item di keranjang arunika.",
+			},
+		},
+	}
+	path := fmt.Sprintf("/androidpublisher/v3/applications/%s/inappproducts?autoConvertMissingPrices=true", androidPackageName())
+	err := v.post(ctx, path, body)
+	if err != nil && strings.Contains(err.Error(), "error 409") {
+		return ErrPlayProductExists
+	}
+	return err
+}
+
+// ConsumeProductPurchase consumes a one-time purchase so the same cart total
+// product can be bought again. Consuming also acknowledges it, which stops
+// Google refunding it automatically after 3 days.
+func (v *GooglePlayVerifier) ConsumeProductPurchase(ctx context.Context, productID, purchaseToken string) error {
+	path := fmt.Sprintf("/androidpublisher/v3/applications/%s/purchases/products/%s/tokens/%s:consume",
+		androidPackageName(), productID, purchaseToken)
+	return v.post(ctx, path, struct{}{})
 }
 
 // VerifySubscriptionPurchase verifies an auto-renewing subscription purchase.

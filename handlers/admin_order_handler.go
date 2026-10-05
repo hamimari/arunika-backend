@@ -5,6 +5,7 @@ import (
 	"arunika_backend/services"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,6 +18,13 @@ import (
 type AdminOrderHandler struct {
 	svc        *services.OrderService
 	paymentSvc *services.PaymentService
+	audit      *services.AuditService
+}
+
+// WithAudit records "Berikan ulang" in the admin audit log.
+func (h *AdminOrderHandler) WithAudit(a *services.AuditService) *AdminOrderHandler {
+	h.audit = a
+	return h
 }
 
 func NewAdminOrderHandler(svc *services.OrderService, paymentSvc *services.PaymentService) *AdminOrderHandler {
@@ -34,7 +42,19 @@ func (h *AdminOrderHandler) List(c *gin.Context) {
 		perPage = 20
 	}
 
-	items, total, err := h.svc.List(c.Query("status"), c.Query("search"), page, perPage)
+	filter := services.OrderListFilter{
+		Status:   c.Query("status"),
+		Search:   c.Query("search"),
+		CartOnly: c.Query("cart") == "true",
+	}
+	if t, err := time.Parse("2006-01-02", c.Query("from")); err == nil {
+		filter.From = &t
+	}
+	if t, err := time.Parse("2006-01-02", c.Query("to")); err == nil {
+		end := t.AddDate(0, 0, 1) // inclusive end date
+		filter.To = &end
+	}
+	items, total, err := h.svc.ListFiltered(filter, page, perPage)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -123,6 +143,63 @@ func (h *AdminOrderHandler) RecoverPlayPurchase(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": views})
+}
+
+// POST /admin/orders/:id/regrant — "Berikan ulang": retries the grant of
+// a cart or single-item order that was paid in Google Play but not yet
+// granted, using the purchase token already on file. Every use is written
+// to the admin audit log.
+func (h *AdminOrderHandler) Regrant(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+		return
+	}
+	adminID, err := uuid.Parse(fmt.Sprint(c.MustGet("adminID")))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	order, err := h.svc.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+		return
+	}
+	if services.OrderPhase(order) != services.PhaseProcessing {
+		c.JSON(http.StatusConflict, gin.H{"error": "order is not paid-and-waiting for its grant"})
+		return
+	}
+	updated, err := h.paymentSvc.VerifyPlayPurchase(c.Request.Context(), id, order.UserID, *order.PurchaseToken)
+	if h.audit != nil {
+		after := gin.H{"ok": err == nil}
+		if err != nil {
+			after["error"] = err.Error()
+		}
+		if aerr := h.audit.Record(nil, adminID, "order.regrant", "order", id.String(), gin.H{"status": order.Status}, after); aerr != nil {
+			slog.Error("audit order.regrant failed", "order_id", id, "error", aerr)
+		}
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	view, err := h.svc.EnrichOne(*updated)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": view})
+}
+
+// GET /admin/store-products — the cart total products and the totals from
+// Rp 1.000 to Rp 500.000 that have no active product.
+func (h *AdminOrderHandler) StoreProducts(c *gin.Context) {
+	report, err := h.paymentSvc.StoreProductCoverage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": report})
 }
 
 // reconcilePlayLookbackDays is kept a day short of Google's actual 30-day

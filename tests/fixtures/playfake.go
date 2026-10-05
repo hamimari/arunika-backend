@@ -53,6 +53,10 @@ type FakePlay struct {
 	// prefix a valid purchase — for suites outside this process (Playwright)
 	// that can't register tokens themselves.
 	acceptPrefix string
+
+	accounts map[string]string // product token -> obfuscatedExternalAccountId (cart order id)
+	skus     map[string]string // product token -> productId
+	consumed map[string]bool   // product tokens consumed through :consume
 }
 
 // NewFakePlay starts the fake server bound to loopback only, for tests that
@@ -90,6 +94,9 @@ func newFakePlay(listenAddr, advertiseHost string) (*FakePlay, error) {
 		revokedTokens:  map[string]string{},
 		refuse:         map[string]int{},
 		orderTotals:    map[string]string{},
+		accounts:       map[string]string{},
+		skus:           map[string]string{},
+		consumed:       map[string]bool{},
 	}
 
 	listener, err := net.Listen("tcp", listenAddr)
@@ -145,6 +152,24 @@ func (f *FakePlay) Purchased(token string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.products[token] = 0
+}
+
+// PurchasedForOrder marks a cart purchase of sku as purchased, carrying
+// orderID the way the app passes it (applicationUserName ->
+// obfuscatedExternalAccountId). state is 0 purchased, 2 pending.
+func (f *FakePlay) PurchasedForOrder(token, sku, orderID string, state int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.products[token] = state
+	f.accounts[token] = orderID
+	f.skus[token] = sku
+}
+
+// Consumed reports whether the backend consumed the product purchase token.
+func (f *FakePlay) Consumed(token string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.consumed[token]
 }
 
 // Canceled marks a product purchase token as canceled.
@@ -311,6 +336,13 @@ func (f *FakePlay) handle(w http.ResponseWriter, r *http.Request) {
 		defer f.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"voidedPurchases": f.voided})
 
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":consume") && strings.Contains(r.URL.Path, "/purchases/products/"):
+		token := strings.TrimSuffix(lastSegment(r.URL.Path), ":consume")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.consumed[token] = true
+		writeJSON(w, http.StatusOK, map[string]any{})
+
 	case strings.Contains(r.URL.Path, "/purchases/products/"):
 		token := lastSegment(r.URL.Path)
 		f.mu.Lock()
@@ -331,8 +363,10 @@ func (f *FakePlay) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"purchaseState": state,
-			"orderId":       "GPA.FAKE-" + token,
+			"purchaseState":               state,
+			"orderId":                     "GPA.FAKE-" + token,
+			"obfuscatedExternalAccountId": f.accounts[token],
+			"productId":                   f.skus[token],
 		})
 
 	case strings.Contains(r.URL.Path, "/purchases/subscriptions/"):

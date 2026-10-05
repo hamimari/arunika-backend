@@ -38,10 +38,14 @@ func NewAuditService(db *gorm.DB) *AuditService {
 	return &AuditService{db: db}
 }
 
-// Record appends an audit entry. A draft.save following one by the same admin
+// Record appends an audit entry, in tx when given (nil uses the service's
+// own connection). A draft.save following one by the same admin
 // on the same entity within draftSaveCoalesceWindow updates that entry's
 // `after` instead of adding a row.
 func (s *AuditService) Record(tx *gorm.DB, adminID uuid.UUID, action, entityType, entityID string, before, after interface{}) error {
+	if tx == nil {
+		tx = s.db
+	}
 	if action == AuditDraftSave {
 		var last models.AdminAuditLog
 		err := tx.Where("entity_type = ? AND entity_id = ?", entityType, entityID).

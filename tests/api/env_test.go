@@ -121,6 +121,11 @@ func (r *Response) Data() map[string]interface{} {
 
 func (e *Env) do(method, path, token string, body interface{}) *Response {
 	e.T.Helper()
+	return e.doWithHeaders(method, path, token, body, nil)
+}
+
+func (e *Env) doWithHeaders(method, path, token string, body interface{}, headers map[string]string) *Response {
+	e.T.Helper()
 
 	var reader *bytes.Reader
 	if body != nil {
@@ -135,6 +140,9 @@ func (e *Env) do(method, path, token string, body interface{}) *Response {
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	w := httptest.NewRecorder()

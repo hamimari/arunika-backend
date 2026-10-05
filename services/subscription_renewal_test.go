@@ -154,6 +154,11 @@ func TestGrantForPaidOrder_RenewalStacksFromPreviousExpiry(t *testing.T) {
 			sqlmock.AnyArg(), "premium", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
+	// Subscribing clears the cart.
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "cart_items" WHERE user_id = $1`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 
 	require.NoError(t, svc.GrantForPaidOrder(gormDB, order))
 	assert.NoError(t, mock.ExpectationsWereMet())

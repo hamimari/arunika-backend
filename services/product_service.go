@@ -86,7 +86,19 @@ func (s *ProductService) ensurePlaySKUFree(sku string, exceptProductID *uuid.UUI
 }
 
 // Create inserts a product and its single content mapping row in one transaction.
+// validatePriceStep enforces the cart's Rp 1.000 price step: every cart
+// total must map to one pre-registered store product.
+func validatePriceStep(priceIdr int64) error {
+	if priceIdr < 0 || priceIdr%CartPriceStepIdr != 0 {
+		return validationErrorf("harga harus kelipatan Rp 1.000 (maksimal total keranjang Rp 500.000)")
+	}
+	return nil
+}
+
 func (s *ProductService) Create(input CreateProductInput) (*models.Product, error) {
+	if err := validatePriceStep(input.PriceIdr); err != nil {
+		return nil, err
+	}
 	feature, err := models.FindFeatureByCode(s.db, input.FeatureCode)
 	if err != nil {
 		return nil, err
@@ -258,6 +270,9 @@ func (s *ProductService) GetByID(id uuid.UUID) (*models.Product, error) {
 // global rule). The content it unlocks (its AR card / dongeng mapping) is
 // permanent and not editable.
 func (s *ProductService) Update(id uuid.UUID, priceIdr int64, strike StrikeInput, play PlayProductUpdate) (*models.Product, error) {
+	if err := validatePriceStep(priceIdr); err != nil {
+		return nil, err
+	}
 	o, err := strike.ToOverride(time.Now())
 	if err != nil {
 		return nil, err

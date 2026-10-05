@@ -87,7 +87,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	// path as the POST above, different HTTP method, no conflict.
 	r.GET("/reset-password", authHandler.ResetPasswordPage)
 
-	userHandler := handlers.NewUserHandler(reg.UserService, reg.AccountDeletionService, reg.AuthService).WithConsent(reg.ConsentService)
+	userHandler := handlers.NewUserHandler(reg.UserService, reg.AccountDeletionService, reg.AuthService).WithConsent(reg.ConsentService).WithCart(reg.CartService)
 	user := r.Group("/user")
 	user.Use(middlewares.JWTAuthMiddleware(rdb))
 	{
@@ -159,6 +159,20 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	orderHandler := handlers.NewOrderHandler(reg.OrderService, reg.PaymentService)
 	r.GET("/orders", middlewares.JWTAuthMiddleware(rdb), orderHandler.List)
 	r.GET("/orders/:id", middlewares.JWTAuthMiddleware(rdb), orderHandler.GetByID)
+
+	// ── Keranjang Belanja ────────────────────────────────────────────────────
+	cartHandler := handlers.NewCartHandler(reg.CartService, reg.PaymentService)
+	cart := r.Group("/cart")
+	cart.Use(middlewares.JWTAuthMiddleware(rdb))
+	{
+		cart.GET("", cartHandler.Get)
+		cart.DELETE("", cartHandler.Clear)
+		cart.POST("/items", cartHandler.AddItem)
+		cart.DELETE("/items/:product_id", cartHandler.RemoveItem)
+	}
+	r.POST("/orders", middlewares.JWTAuthMiddleware(rdb), middlewares.RateLimitMiddleware(rdb, "orders", 10, time.Minute), cartHandler.CreateOrder)
+	r.POST("/orders/:id/verify", middlewares.JWTAuthMiddleware(rdb), cartHandler.VerifyOrder)
+	r.GET("/entitlements", middlewares.JWTAuthMiddleware(rdb), cartHandler.Entitlements)
 
 	// ── App feature flags ─────────────────────────────────────────────────────
 	featureFlagHandler := handlers.NewFeatureFlagHandler(reg.FeatureFlagService)
@@ -245,7 +259,7 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 	adminCampaignHandler := handlers.NewAdminCampaignHandler(reg.AdminCampaignService)
 	adminPaymentHandler := handlers.NewAdminPaymentHandler(reg.AdminPaymentService)
 	adminProductHandler := handlers.NewAdminProductHandler(reg.ProductService)
-	adminOrderHandler := handlers.NewAdminOrderHandler(reg.OrderService, reg.PaymentService)
+	adminOrderHandler := handlers.NewAdminOrderHandler(reg.OrderService, reg.PaymentService).WithAudit(reg.AuditService)
 	strikePriceHandler := handlers.NewStrikePriceHandler(reg.StrikePriceService)
 	bannerHandler := handlers.NewBannerHandler(reg.BannerService)
 
@@ -284,6 +298,8 @@ func SetupRouter(reg *registry.ServiceRegistry, rdb *redis.Client, db *gorm.DB) 
 		admin.GET("/orders", adminOrderHandler.List)
 		admin.POST("/orders/:id/sync", adminOrderHandler.Sync)
 		admin.POST("/orders/:id/recover-play", adminOrderHandler.RecoverPlayPurchase)
+		admin.POST("/orders/:id/regrant", adminOrderHandler.Regrant)
+		admin.GET("/store-products", adminOrderHandler.StoreProducts)
 		admin.POST("/orders/reconcile-play", adminOrderHandler.ReconcilePlayPurchases)
 		admin.POST("/orders/:id/refund", adminOrderHandler.Refund)
 		admin.GET("/orders/:id/refunds", adminOrderHandler.ListRefunds)

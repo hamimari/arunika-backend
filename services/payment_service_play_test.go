@@ -39,6 +39,14 @@ type fakePlayVerifier struct {
 	revokeProrated bool
 	order          *PlayOrder
 	orderErr       error
+
+	consumed   []string
+	consumeErr error
+}
+
+func (f *fakePlayVerifier) ConsumeProductPurchase(ctx context.Context, productID, purchaseToken string) error {
+	f.consumed = append(f.consumed, purchaseToken)
+	return f.consumeErr
 }
 
 func (f *fakePlayVerifier) VerifyProductPurchase(ctx context.Context, productID, purchaseToken string) (*PlayProductPurchase, error) {
@@ -314,6 +322,9 @@ func TestPaymentService_VerifyPlayPurchase_SubscriptionSuccess(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(userSubscriptionCols()))
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "user_subscriptions"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(subID))
+	// Subscribing clears the cart, in the same transaction.
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "cart_items" WHERE user_id = $1`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	// SyncSubscriptionExpiry, on the same transaction, now sees that insert
 	// and updates it to Play's expiry rather than inserting a second row.

@@ -31,6 +31,7 @@ type ServiceRegistry struct {
 	ProductService         *services.ProductService
 	EntitlementService     *services.EntitlementService
 	OrderService           *services.OrderService
+	CartService            *services.CartService
 	FeatureFlagService     *services.FeatureFlagService
 	StrikePriceService     *services.StrikePriceService
 	AccountDeletionService *services.AccountDeletionService
@@ -53,6 +54,7 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 	strikeSvc := services.NewStrikePriceService(db)
 	productSvc := services.NewProductService(db).WithStrikePricing(strikeSvc)
 	orderSvc := services.NewOrderService(db, productSvc)
+	featureFlagSvc := services.NewFeatureFlagService(db)
 	mediaCfg := storage.ConfigFromEnv()
 	store := storage.MustNew(mediaCfg)
 	mediaDir := ""
@@ -85,7 +87,8 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		ProductService:         productSvc,
 		EntitlementService:     entitlementSvc,
 		OrderService:           orderSvc,
-		FeatureFlagService:     services.NewFeatureFlagService(db),
+		FeatureFlagService:     featureFlagSvc,
+		CartService:            services.NewCartService(db, entitlementSvc, strikeSvc, featureFlagSvc),
 		StrikePriceService:     strikeSvc,
 		AccountDeletionService: services.NewAccountDeletionService(db),
 		ConsentService:         services.NewConsentService(db),

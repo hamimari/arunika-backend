@@ -36,6 +36,28 @@ func GrantEntitlement(db *gorm.DB, userID, productID uuid.UUID, sourceOrderID *u
 	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&entitlement).Error
 }
 
+// GrantOrRestoreEntitlement grants (userID, productID) for a cart order.
+// Unlike GrantEntitlement it also restores an entitlement a refund ended
+// earlier, since the parent has now paid for the item again.
+func GrantOrRestoreEntitlement(db *gorm.DB, userID, productID uuid.UUID, sourceOrderID uuid.UUID) error {
+	entitlement := UserEntitlement{
+		UserID:        userID,
+		ProductID:     productID,
+		StartsAt:      time.Now(),
+		SourceOrderID: &sourceOrderID,
+	}
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "product_id"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"expires_at":      nil,
+			"source_order_id": sourceOrderID,
+		}),
+		Where: clause.Where{Exprs: []clause.Expression{
+			clause.Expr{SQL: "user_entitlements.expires_at IS NOT NULL AND user_entitlements.expires_at <= NOW()"},
+		}},
+	}).Create(&entitlement).Error
+}
+
 // HasEntitlement reports whether the user has a non-expired entitlement for productID.
 func HasEntitlement(db *gorm.DB, userID, productID uuid.UUID) (bool, error) {
 	var count int64
