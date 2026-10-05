@@ -1,0 +1,87 @@
+name: Deploy
+
+# Deploys the API to the production VPS once the cross-system E2E suite has
+# passed for a push to master, using the exact commit that suite tested. The
+# VPS builds the image itself (deploy/deploy.sh); CI only asks it to over SSH.
+#
+# Run it by hand with a `ref` to redeploy or roll back to any commit on master.
+on:
+  workflow_run:
+    workflows: ["Merge (cross-system E2E)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag or branch to deploy (must be on master)
+        required: true
+        default: master
+
+permissions:
+  contents: read
+
+# Shared with nothing outside this repo; deploy.sh's lock on the VPS is what
+# serialises backend and backoffice deploys against each other.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26"
+  API_URL: https://api.haloarunika.com
+
+jobs:
+  deploy:
+    name: Deploy API
+    # Merge also runs for repository_dispatch from the app and backoffice;
+    # those test the backend that is already deployed, so they don't deploy.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+
+      - name: Resolve commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The deploy key only runs deploy.sh (a forced command on the VPS), and
+      # the host key is pinned rather than trusted on first use.
+      - name: Deploy on the VPS
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "${DEPLOY_PORT:-22}" \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=30 \
+            "$DEPLOY_USER@$DEPLOY_HOST" "backend $SHA"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      # Read-only checks against production. The canary login runs only when
+      # its credentials are set in the production environment.
+      - name: Smoke tests
+        env:
+          SMOKE_BASE_URL: ${{ env.API_URL }}
+          SMOKE_CANARY_EMAIL: ${{ secrets.SMOKE_CANARY_EMAIL }}
+          SMOKE_CANARY_PASSWORD: ${{ secrets.SMOKE_CANARY_PASSWORD }}
+        run: go test -tags smoke ./tests/smoke/ -count=1 -v

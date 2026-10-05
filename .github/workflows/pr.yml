@@ -36,6 +36,11 @@ jobs:
         with:
           version: v2.14.0
 
+      # deploy.sh runs on the production VPS; a broken one blocks every deploy.
+      # shellcheck is preinstalled on GitHub's Ubuntu runners.
+      - name: shellcheck
+        run: shellcheck deploy/deploy.sh
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest

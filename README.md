@@ -245,6 +245,8 @@ curl -I https://api.haloarunika.com/health
 
 **7. Update to a new version**
 
+Updates deploy automatically (see below). To deploy by hand on the server:
+
 ```bash
 git pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build app
@@ -255,6 +257,44 @@ Flyway will automatically run any new migration files on the next start of the `
 ```bash
 docker compose run --rm flyway
 ```
+
+#### Automatic deploys
+
+When a push to `master` passes `Merge (cross-system E2E)`, `.github/workflows/deploy.yml` deploys that exact commit. The backoffice repo does the same after `Merge (admin E2E)`. Neither runs for other branches, failed runs, or the cross-repo `repository_dispatch` runs.
+
+CI builds nothing itself. It connects to the VPS over SSH and runs `deploy/deploy.sh <backend|backoffice> <sha>`. The script:
+
+- checks that the sha is on `origin/master`, then checks it out;
+- rebuilds only that service: a backend deploy runs Flyway and recreates `app`, and a backoffice deploy recreates `backoffice` only;
+- waits for the container to become healthy, and fails otherwise;
+- appends the deploy to `/opt/arunika/deploy-history.log`.
+
+A lock on the VPS keeps backend and backoffice deploys from overlapping. Afterwards, the backend workflow runs `tests/smoke` against `https://api.haloarunika.com`, and the backoffice workflow checks `https://admin.haloarunika.com`.
+
+**One-time setup**
+
+1. Create a `deploy` user in the `docker` group that owns `/opt/arunika` and can read `.env`.
+2. Give each repo a read-only GitHub deploy key, and switch the clones' remotes to SSH. `git fetch` must work as `deploy`.
+3. Generate a CI key (`ssh-keygen -t ed25519 -f ci-deploy -N ''`). Add the public half to `~deploy/.ssh/authorized_keys` as a forced command, so the key can only run the deploy script:
+
+   ```
+   command="/opt/arunika/arunika-backend/deploy/deploy.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… ci-deploy
+   ```
+
+4. In both repos, create a GitHub environment named `production`, limited to `master`, with these secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `DEPLOY_HOST` | VPS hostname or IP |
+   | `DEPLOY_PORT` | SSH port; optional, defaults to 22 |
+   | `DEPLOY_USER` | `deploy` |
+   | `DEPLOY_SSH_KEY` | the private half of `ci-deploy` |
+   | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <host>`, checked against the server's own fingerprint |
+   | `SMOKE_CANARY_EMAIL` / `SMOKE_CANARY_PASSWORD` | backend only, optional; enables the canary login smoke test |
+
+   To approve each deploy by hand, add required reviewers to the environment.
+
+**Redeploy or roll back:** in Actions → Deploy, click "Run workflow" and set `ref` to any commit on `master`; the previous shas are in `deploy-history.log`. Migrations are not rolled back with the code, so every migration must still work with the release before it (expand first, contract in a later release).
 
 ---
 
