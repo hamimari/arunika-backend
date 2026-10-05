@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -51,11 +52,30 @@ func (s *PaymentService) handleOneTimeRTDN(ctx context.Context, n *playOneTimePr
 	if err != nil || !order.IsCart {
 		return nil
 	}
-	_, err = s.VerifyPlayPurchase(ctx, order.ID, order.UserID, n.PurchaseToken)
+	wasGranted := order.GrantedAt != nil
+	settled, err := s.VerifyPlayPurchase(ctx, order.ID, order.UserID, n.PurchaseToken)
 	if errors.Is(err, ErrPlayPurchasePending) {
 		return nil
 	}
+	if err == nil && !wasGranted && settled.GrantedAt != nil {
+		s.notifyCartGranted(settled)
+	}
 	return err
+}
+
+// notifyCartGranted tells the parent their items are ready when the grant
+// happened in the background (RTDN or the worker), after the app stopped
+// waiting. Best-effort.
+func (s *PaymentService) notifyCartGranted(order *models.Order) {
+	if s.notifications == nil {
+		return
+	}
+	var count int64
+	s.db.Model(&models.OrderItem{}).Where("order_id = ?", order.ID).Count(&count)
+	body := fmt.Sprintf("Pembayaranmu selesai. %d item sudah bisa dibuka.", count)
+	if err := s.notifications.Send(order.UserID, "Item siap dibuka", body, "cart_granted"); err != nil {
+		slog.Warn("cart granted notification failed", "order_id", order.ID, "error", err)
+	}
 }
 
 // RunCartSettlement is one pass of the cart worker: it retries the grant of
@@ -72,9 +92,12 @@ func (s *PaymentService) RunCartSettlement(ctx context.Context) {
 	}
 	for i := range unsettled {
 		o := &unsettled[i]
-		_, err := s.VerifyPlayPurchase(ctx, o.ID, o.UserID, *o.PurchaseToken)
+		settled, err := s.VerifyPlayPurchase(ctx, o.ID, o.UserID, *o.PurchaseToken)
 		if err == nil {
 			slog.Info("cart worker: order granted", "order_id", o.ID)
+			if settled.GrantedAt != nil {
+				s.notifyCartGranted(settled)
+			}
 			continue
 		}
 		if errors.Is(err, ErrPlayPurchaseNotValid) || errors.Is(err, ErrPlayPurchaseMismatch) || errors.Is(err, ErrPlayPurchaseTokenReused) {

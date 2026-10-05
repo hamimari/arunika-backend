@@ -25,6 +25,15 @@ type PaymentService struct {
 	db                 *gorm.DB
 	entitlementService *EntitlementService
 	playVerifier       playPurchaseVerifier
+	// notifications, when set, tells a parent when a cart order paid
+	// earlier is granted in the background ("item siap dibuka").
+	notifications *NotificationService
+}
+
+// WithNotifications enables the push sent when a delayed cart grant lands.
+func (s *PaymentService) WithNotifications(n *NotificationService) *PaymentService {
+	s.notifications = n
+	return s
 }
 
 func NewPaymentService(db *gorm.DB, entitlementService *EntitlementService) *PaymentService {

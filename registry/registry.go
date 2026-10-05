@@ -80,7 +80,7 @@ func NewServiceRegistry(db *gorm.DB, redis *redis.Client) *ServiceRegistry {
 		TracingService:         services.NewTracingService(db),
 		CountingService:        services.NewCountingService(db),
 		BadgeService:           services.NewBadgeService(db),
-		PaymentService:         services.NewPaymentService(db, entitlementSvc),
+		PaymentService:         services.NewPaymentService(db, entitlementSvc).WithNotifications(notificationSvc),
 		NotificationService:    notificationSvc,
 		GrowthService:          services.NewGrowthService(db),
 		PremiumPackService:     services.NewPremiumPackService(db, orderSvc).WithStrikePricing(strikeSvc),
